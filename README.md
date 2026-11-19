@@ -1,11 +1,12 @@
-<div align="center">
+# BTECH Bot (BTECH-BOT-V2 Android)
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Native Android application built with Kotlin, Jetpack Compose, and Material Design 3.
 
-  <h1>Built with AI Studio</h2>
+## Features
+- **Multi-Mode Bot Chat**: Switch between *BTECH Core*, *Dev & Debug*, *Finance & Ops*, and *Bot Automator* personas with optional custom session directives.
+- **Slash Command Templates**: Quick-launch `/summarize`, `/debug`, `/budget`, `/automate`, and `/draft` workflows directly from the chat composer or Commands tab.
+- **Local Session Persistence & Preferences**: Automatically saves conversation threads locally and persists theme, streaming animation, and layout density settings with DataStore.
+- **Adaptive Edge-to-Edge UI**: Supports phones (`NavigationBar`) and larger screens (`NavigationRail`) with custom bundled typography (`Space Grotesk`, `Plus Jakarta Sans`, `JetBrains Mono`) and an adaptive launcher icon.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## AI Backend Status
+All AI requests are routed through `AiRepository` (`PlaceholderAiRepository`), which currently returns clearly labeled sample responses because Firebase setup was declined. Connecting **Firebase AI Logic** enables live streaming Gemini responses without needing an API key.

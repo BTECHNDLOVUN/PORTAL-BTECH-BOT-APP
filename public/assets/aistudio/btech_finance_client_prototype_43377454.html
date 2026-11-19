@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BTECH Finance — Client App Prototype v8</title>
+<style>
+:root{--bg:#080f18;--surface:#101b28;--surface2:#162434;--surface3:#1c2d3e;--line:#293b4d;--text:#eef4f7;--muted:#91a2b2;--teal:#9138ee;--teal-d:#2b1742;--green:#41d39a;--green-d:#12372d;--red:#ff5966;--red-d:#411f27;--amber:#f2bb57;--amber-d:#3b2e17;--purple:#9a70ff;--shadow:0 16px 38px #0008;--radius:18px}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#143342 0,#080f18 52%);font-family:Inter,Roboto,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);min-height:100vh}button,input,select{font:inherit}button{cursor:pointer;border:0}#shell{width:min(100%,440px);min-height:100vh;margin:0 auto;position:relative;padding:0 15px 108px;overflow:hidden}.status{height:32px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#dce7ee;padding:0 7px}.top{display:flex;align-items:center;justify-content:space-between;padding:8px 6px 15px}.brand{display:flex;align-items:center;gap:10px}.brandmark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#24e1bd,#078e7a);display:grid;place-items:center;color:#05201d;font-weight:900;font-size:19px;box-shadow:0 5px 20px #18d2b044}.brandname{font-size:13px;font-weight:800;letter-spacing:.1em}.topicon{height:36px;width:36px;border-radius:50%;display:grid;place-items:center;background:var(--surface2);border:1px solid var(--line);color:var(--text);font-size:17px}.page-title{font-size:25px;font-weight:800;letter-spacing:-.03em;margin:2px 6px 4px}.page-sub{font-size:12px;color:var(--muted);margin:0 6px 18px;line-height:1.45}.eyebrow{font-size:10px;letter-spacing:.12em;color:var(--muted);font-weight:700}.card{background:linear-gradient(155deg,#142233,#0f1925);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:0 8px 22px #0002}.row{display:flex;align-items:center;gap:12px}.between{display:flex;align-items:center;justify-content:space-between;gap:12px}.muted{color:var(--muted)}.small{font-size:11px}.tiny{font-size:9px}.title{font-size:15px;font-weight:750}.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:100px;font-size:10px;font-weight:750;letter-spacing:.02em;background:var(--teal-d);color:var(--teal)}.pill.green{background:var(--green-d);color:var(--green)}.pill.red{background:var(--red-d);color:var(--red)}.pill.amber{background:var(--amber-d);color:var(--amber)}.dot{height:7px;width:7px;background:currentColor;border-radius:50%;display:inline-block}.btn{min-height:45px;padding:0 16px;border-radius:14px;font-weight:800;font-size:12px;letter-spacing:.025em;background:var(--teal);color:#05211d;box-shadow:0 5px 18px #18d2b022}.btn:active{transform:translateY(1px)}.btn.secondary{background:var(--surface3);color:var(--text);border:1px solid var(--line);box-shadow:none}.btn.danger{background:var(--red);color:white;box-shadow:none}.btn.ghost{background:transparent;color:var(--teal);border:1px solid #1c685d;box-shadow:none}.btn.green{background:var(--green);color:#05231a}.btn.full{width:100%}.btnrow{display:flex;gap:9px}.btnrow>*{flex:1;min-width:0}.field{margin:15px 0}.field label{display:block;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;margin:0 0 7px}.input,select{width:100%;height:48px;border-radius:13px;border:1px solid var(--line);background:#0b1420;color:var(--text);padding:0 14px;outline:none}.input:focus,select:focus{border-color:var(--teal);box-shadow:0 0 0 3px #18d2b018}.hint{font-size:10px;color:var(--muted);line-height:1.45;margin-top:6px}.section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 4px 10px}.section-head strong{font-size:15px}.link{background:none;color:var(--teal);font-size:11px;font-weight:700;padding:5px}.robot-art{height:162px;border-radius:17px;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 42%,#155c59 0,#122f39 24%,#0b1724 67%);border:1px solid #27504f;display:flex;align-items:center;justify-content:center}.robot-art:before,.robot-art:after{content:"";position:absolute;border:1px solid #2b8e81;border-radius:50%;opacity:.35}.robot-art:before{height:185px;width:185px}.robot-art:after{height:140px;width:140px}.robot-head{height:70px;width:80px;border-radius:26px;background:linear-gradient(145deg,#21d7b7,#087d75);position:relative;z-index:1;box-shadow:0 0 28px #18d2b055}.robot-head:before{content:"";position:absolute;left:20px;top:27px;width:10px;height:10px;border-radius:50%;background:#062d2a;box-shadow:30px 0 #062d2a}.robot-head:after{content:"";position:absolute;left:28px;top:48px;width:25px;height:4px;border-radius:4px;background:#063b36}.art-label{position:absolute;bottom:12px;font-size:9px;color:#a9c5c8;letter-spacing:.14em;font-weight:700}.robot-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin:13px 0}.robot-actions button{height:46px;font-size:10px;padding:0 4px}.robot-summary{display:flex;align-items:center;gap:12px}.thumb{height:57px;width:57px;border-radius:13px;background:linear-gradient(145deg,#155b58,#101b29);display:grid;place-items:center;color:var(--teal);font-size:22px;font-weight:900;flex:none}.summary-copy{min-width:0}.summary-copy strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.summary-copy small{display:block;color:var(--muted);font-size:10px;margin-top:5px}.summary-copy em{display:block;color:var(--amber);font-size:10px;font-style:normal;margin-top:5px}.nav{position:fixed;z-index:15;bottom:calc(env(safe-area-inset-bottom) + 10px);left:50%;transform:translateX(-50%);width:min(calc(100% - 26px),414px);height:68px;padding:7px 9px;border-radius:23px;background:#101b28f2;border:1px solid #304355;box-shadow:0 15px 40px #0009;display:flex;align-items:center;justify-content:space-around;backdrop-filter:blur(18px)}.nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);background:transparent;min-width:53px;height:52px;border-radius:14px;font-size:9px;font-weight:650}.nav button .ico{font-size:19px;line-height:20px}.nav button.active{background:var(--teal-d);color:var(--teal)}.nav button.add{height:50px;width:52px;min-width:52px;border-radius:17px;background:var(--teal);color:#06211d;font-size:24px}.empty{padding:32px 22px;text-align:center}.empty-orb{height:88px;width:88px;border-radius:50%;margin:0 auto 20px;display:grid;place-items:center;background:radial-gradient(circle,#1a5d56,#142633);font-size:35px;color:var(--teal);border:1px solid #28685f}.tabbar{display:flex;gap:5px;padding:5px;border-radius:14px;background:#0b1420;border:1px solid var(--line)}.tabbar button{flex:1;background:transparent;color:var(--muted);height:36px;border-radius:10px;font-size:10px;font-weight:800}.tabbar button.active{background:var(--teal);color:#05211d}.market{display:flex;align-items:center;gap:11px;padding:12px;border:1px solid var(--line);background:var(--surface);border-radius:14px;margin:9px 0}.market-icon{height:38px;width:38px;border-radius:11px;background:var(--surface3);display:grid;place-items:center;color:var(--teal);font-size:12px;font-weight:800}.market-main{flex:1;min-width:0}.market-main strong{display:block;font-size:12px}.market-main small{display:block;color:var(--muted);font-size:9px;margin-top:4px}.market .plus{color:var(--teal);font-size:20px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.info-cell{padding:12px;background:#0b1520;border:1px solid var(--line);border-radius:12px}.info-cell small{display:block;color:var(--muted);font-size:9px;margin-bottom:6px}.info-cell strong{font-size:11px}.broker{display:flex;align-items:center;gap:11px;padding:12px;border-radius:15px;border:1px solid var(--line);background:var(--surface);margin:9px 0;width:100%;text-align:left;color:var(--text)}.broker-logo{height:43px;width:43px;border-radius:12px;background:var(--surface3);display:grid;place-items:center;color:var(--teal);font-weight:900;font-size:13px}.broker-copy{flex:1;min-width:0}.broker-copy strong{display:block;font-size:12px}.broker-copy small{display:block;color:var(--muted);font-size:9px;margin-top:4px}.server-tag{font-size:9px;color:var(--muted);background:var(--surface3);padding:6px 8px;border-radius:20px}
+
+.switch{
+   height:25px;
+   width:55px;
+   border-radius:50%;
+   background:var(--green);
+   padding:4px;
+   display:flex;
+   /*justify-content:flex-end;*/
+   flex:0 0 24px;
+   align-items: center;
+}
+
+.switch.off{
+   background:#455466;
+   /*justify-content:flex-start*/
+   flex:0 0 24px;
+}
+
+.switch span{
+   height:19px;
+   width:19px;
+   border-radius:50%;
+   background:white
+}
+
+.seg{display:flex;gap:6px}.seg button{flex:1;height:37px;border-radius:11px;background:var(--surface3);color:var(--muted);font-size:10px;font-weight:800;border:1px solid var(--line)}.seg button.active{background:var(--teal-d);border-color:#237a6b;color:var(--teal)}.terminal{background:#0b1420;border:1px solid var(--line);border-radius:15px;padding:11px;overflow:hidden}.chart{height:135px;position:relative;background:linear-gradient(180deg,#0d1a28,#101b28);border-radius:8px;margin:10px 0;border:1px solid #25394b;overflow:hidden}.chart:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 25px,#24384a 26px),repeating-linear-gradient(90deg,transparent 0 37px,#24384a 38px);opacity:.6}.chart svg{position:relative;width:100%;height:100%}.float-bubble{position:fixed;right:max(calc((100vw - 440px)/2 + 22px),22px);bottom:110px;height:54px;width:54px;border-radius:50%;background:linear-gradient(145deg,#23e1bc,#078b7a);color:#04221d;box-shadow:0 7px 25px #18d2b077;display:none;place-items:center;font-weight:900;font-size:20px;z-index:19;border:2px solid #a2f6e8}.float-bubble.show{display:grid}.modal-backdrop{position:fixed;inset:0;background:#030910c9;z-index:30;display:none;align-items:center;justify-content:center;padding:20px}.modal-backdrop.show{display:flex}.modal{width:min(100%,390px);background:#172637;border:1px solid #3a5266;border-radius:23px;padding:22px;box-shadow:var(--shadow)}.modal-icon{height:64px;width:64px;border-radius:50%;margin:0 auto 16px;display:grid;place-items:center;background:var(--green-d);color:var(--green);font-size:28px}.modal h3{font-size:18px;text-align:center;margin:0 0 9px}.modal p{text-align:center;color:var(--muted);font-size:11px;line-height:1.5;margin:0 0 18px}.timeline{display:flex;gap:10px;align-items:flex-start;margin:11px 0}.timeline-dot{height:9px;width:9px;border-radius:50%;background:var(--green);margin-top:4px;flex:none;box-shadow:0 0 0 4px #41d39a18}.timeline-copy{font-size:10px;line-height:1.35}.timeline-copy small{display:block;color:var(--muted);font-size:9px;margin-top:3px}.toast{position:fixed;z-index:45;left:50%;transform:translateX(-50%);bottom:93px;background:#183d34;color:#a8ffdf;border:1px solid #2c8b6a;padding:12px 16px;border-radius:14px;font-size:11px;font-weight:800;box-shadow:var(--shadow);display:none;white-space:nowrap}.toast.show{display:block}.toast.error{background:#4a1720;color:#ffe2e5;border:1px solid #dc3545;box-shadow:0 8px 24px #dc354544}.palette{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;padding:14px}.swatch{height:40px;border-radius:50%;border:2px solid transparent}.swatch.active{outline:2px solid var(--text);outline-offset:3px}.demo-note{background:#2a2519;border:1px solid #68532a;color:#eac981;padding:10px 12px;border-radius:12px;font-size:9px;line-height:1.45;margin-top:13px}.hidden{display:none!important}
+
+/* BTECH refinement: full-interface themes, broker configuration and movable overlay */
+:root{--btn-text:#06211d;--card-bg:linear-gradient(155deg,var(--surface2),var(--surface));--input-bg:var(--bg)}
+body{background:radial-gradient(ellipse at 50% -20%,color-mix(in srgb,var(--teal) 17%,var(--bg)) 0,var(--bg) 58%);color:var(--text);transition:background .2s,color .2s}
+.card{background:var(--card-bg);border-color:var(--line)}
+.input,select{background:var(--input-bg);color:var(--text);border-color:var(--line)}
+.nav{background:color-mix(in srgb,var(--surface) 94%,transparent);border-color:var(--line)}
+.tabbar{background:var(--surface);border-color:var(--line)}
+.tabbar button.active,.nav button.add,.btn,.btn.green{background:var(--teal);color:var(--btn-text);border-color:var(--teal)}
+.btn.ghost,.link{color:var(--teal)}
+.btn.ghost{border-color:color-mix(in srgb,var(--teal) 60%,transparent)}
+.btn.secondary{background:var(--surface3);color:var(--text);border-color:var(--line)}
+.btn.green{box-shadow:0 5px 18px color-mix(in srgb,var(--teal) 22%,transparent)}
+.topicon,.market,.broker,.info-cell,.terminal,.chart,.tabbar,.input,select{background-color:var(--surface)}
+.empty-orb{background:radial-gradient(circle,color-mix(in srgb,var(--teal) 34%,var(--surface)),var(--surface));border-color:color-mix(in srgb,var(--teal) 55%,var(--line))}
+.brandmark{background:linear-gradient(135deg,var(--teal),color-mix(in srgb,var(--teal) 65%,#08201d));box-shadow:0 5px 20px color-mix(in srgb,var(--teal) 30%,transparent)}
+.float-bubble{background:var(--teal);color:var(--btn-text);border-color:color-mix(in srgb,var(--teal) 48%,white);box-shadow:0 7px 25px color-mix(in srgb,var(--teal) 48%,transparent);touch-action:none;cursor:grab;user-select:none}
+.float-bubble:active{cursor:grabbing}
+.float-panel{position:fixed;z-index:34;width:min(360px,calc(100vw - 24px));max-height:min(72vh,620px);overflow:auto;left:12px;top:120px;display:none;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 55px #0008;padding:0;overscroll-behavior:contain}
+.float-panel.show{display:block}
+.float-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;background:var(--surface2);border-bottom:1px solid var(--line);border-radius:18px 18px 0 0;cursor:grab;touch-action:none;user-select:none}
+.float-panel-head:active{cursor:grabbing}
+.float-panel-head strong{font-size:12px;letter-spacing:.04em}
+.float-panel-body{padding:13px}
+.float-panel-close{height:30px;width:30px;border-radius:10px;background:var(--surface3);color:var(--text);font-size:18px}
+.drag-hint{font-size:9px;color:var(--muted);padding:0 15px 9px;background:var(--surface2)}
+.server-select-wrap{position:relative}
+.server-note{border:1px solid var(--line);background:var(--surface2);border-radius:12px;padding:10px 12px;font-size:10px;line-height:1.45;color:var(--muted);margin-top:8px}
+.server-url{font-size:9px;color:var(--teal);word-break:break-all;margin-top:5px}
+.theme-mode{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.theme-mode button{height:42px;border:1px solid var(--line);border-radius:12px;background:var(--surface2);color:var(--text);font-size:11px;font-weight:800}
+.theme-mode button.active{background:var(--teal);border-color:var(--teal);color:var(--btn-text)}
+.palette{grid-template-columns:repeat(4,1fr)}
+.swatch{cursor:pointer}
+.custom-colour-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:13px;background:var(--surface2);margin-top:12px}
+.custom-colour-row input[type=color]{height:42px;width:62px;border:0;background:transparent;cursor:pointer;padding:0}
+:root[data-theme="light"]{--bg:#f2f5f9;--surface:#ffffff;--surface2:#edf2f7;--surface3:#e2e9f0;--line:#d0d9e3;--text:#182534;--muted:#627386;--teal-d:color-mix(in srgb,var(--teal) 15%,white);--green-d:#e2f6ed;--red-d:#ffeaec;--amber-d:#fff2d9;--card-bg:#ffffff;--input-bg:#ffffff;--btn-text:#10202e;--shadow:0 16px 38px #26384b22}
+:root[data-theme="light"] body{background:radial-gradient(ellipse at 50% -20%,color-mix(in srgb,var(--teal) 12%,white),var(--bg) 60%)}
+:root[data-theme="light"] .nav{background:color-mix(in srgb,var(--surface) 94%,transparent);box-shadow:0 12px 30px #34465a22}
+:root[data-theme="light"] .modal{background:var(--surface);border-color:var(--line)}
+:root[data-theme="light"] .float-panel{box-shadow:0 18px 55px #34465a33}
+:root[data-theme="light"] .info-cell{background:var(--surface2)}
+:root[data-theme="light"] .terminal,:root[data-theme="light"] .chart{background:var(--surface2)}
+@media(max-width:380px){.float-panel{max-height:68vh}.float-panel-body{padding:10px}.float-panel .btnrow{flex-direction:column}}
+
+@media(min-width:600px){body{padding:20px 0}#shell{border:1px solid #263a4d;border-radius:34px;min-height:860px;box-shadow:var(--shadow);background:var(--bg)}.nav{position:absolute;bottom:16px}}
+
+/* BTECH home screen + navigation refinement (v3) */
+:root{--nav-strip:#e9e9ee;--nav-stroke:#fff;--hero-fade:var(--bg);--accent-soft:color-mix(in srgb,var(--teal) 14%,transparent)}
+:root[data-theme="dark"]{--nav-strip:#22232a;--nav-stroke:#fff}
+:root[data-theme="light"]{--nav-strip:#ececf1;--nav-stroke:#fff}
+body{background:var(--bg);color:var(--text)}
+#shell{overflow:visible}
+/* Full-bleed hero artwork occupies approximately the upper half of the phone. */
+.robot-hero{position:relative;width:calc(100% + 30px);height:50svh;min-height:285px;max-height:440px;margin:0 -15px 0;overflow:hidden;background:var(--surface2);isolation:isolate}
+.robot-hero img{display:block;width:100%;height:100%;object-fit:cover;object-position:center 42%;}
+.robot-hero:after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.03) 35%,rgba(0,0,0,.18) 64%,color-mix(in srgb,var(--bg) 96%,transparent) 100%);}
+.robot-hero:before{content:"";position:absolute;inset:0;z-index:0;background:radial-gradient(ellipse at 50% 40%,color-mix(in srgb,var(--teal) 12%,transparent),transparent 65%);pointer-events:none;mix-blend-mode:soft-light}
+.robot-art-compact{height:170px;position:relative;overflow:hidden;border-radius:13px;background:var(--surface2)}
+.robot-art-compact img{width:100%;height:100%;object-fit:cover;object-position:center 42%;display:block}
+.robot-art-compact:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.72));pointer-events:none}
+.robot-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:13px 0 14px}
+.robot-actions button{height:46px;min-height:46px;border-radius:8px!important;padding:8px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:10px;letter-spacing:.035em}
+.robot-actions button .action-icon{height:25px;display:grid;place-items:center}
+.robot-actions button .action-label{display:block;line-height:1}
+.robot-actions .action-primary{background:var(--teal);color:var(--btn-text);border:1px solid var(--teal);box-shadow:0 5px 18px color-mix(in srgb,var(--teal) 24%,transparent)}
+.robot-actions .action-secondary{background:var(--surface);color:var(--text);border:1px solid var(--line);box-shadow:none}
+.robot-summary{background:var(--surface);border-color:var(--line);border-radius:14px;padding:12px}
+.robot-summary .thumb{height:54px;width:54px;border-radius:50%;overflow:hidden;border:2px solid var(--line);background:var(--surface2)}
+.robot-summary .thumb img{height:100%;width:100%;object-fit:cover}
+/* Reference-style bottom navigation: grey top rail, active indicator, white/light body. */
+.nav{height:82px;bottom:calc(env(safe-area-inset-bottom) + 8px);width:min(calc(100% - 24px),414px);padding:0;border-radius:20px;background:var(--surface);border:1px solid var(--line);box-shadow:0 14px 35px #0003;display:block;overflow:visible;backdrop-filter:blur(16px)}
+.nav-cap{height:13px;position:absolute;left:0;right:0;top:0;border-radius:20px 20px 0 0;background:var(--nav-strip);overflow:hidden}
+.nav-active-marker{position:absolute;left:0;top:11px;height:2px;width:20%;background:var(--teal);transition:left .2s ease,width .2s ease}
+.nav-items{height:100%;padding:13px 7px 5px;display:flex;align-items:center;justify-content:space-around;position:relative;z-index:1}
+.nav button.nav-tab{height:64px;min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:transparent;color:var(--muted);border-radius:0;font-size:9px;font-weight:650;padding:0;position:relative}
+.nav button.nav-tab .nav-icon-wrap{height:39px;width:39px;border-radius:50%;display:grid;place-items:center;color:currentColor;background:transparent;border:2px solid transparent;transition:background .2s,border-color .2s,transform .2s;}
+.nav button.nav-tab .nav-label{line-height:1.1;display:block;color:inherit}
+.nav button.nav-tab.active{background:transparent;color:var(--teal)}
+.nav button.nav-tab.active .nav-icon-wrap{background:var(--surface);border:2px solid var(--nav-stroke);box-shadow:0 2px 9px color-mix(in srgb,var(--teal) 15%,transparent),0 0 0 1px var(--line);}
+.nav button.nav-tab.add{flex:1;min-width:0;height:64px;background:transparent;color:var(--text);border-radius:0;font-size:9px;box-shadow:none}
+.nav button.nav-tab.add .nav-icon-wrap{height:56px;width:56px;border-radius:50%;transform:translateY(-15px);background:var(--teal);color:var(--btn-text);border:3px solid var(--surface);box-shadow:0 5px 16px color-mix(in srgb,var(--teal) 35%,transparent);}
+.nav button.nav-tab.add .nav-label{display:none}
+.nav button.nav-tab .lucide{width:21px;height:21px}
+/* Circular palette chips and a real native custom colour control. */
+.palette{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;padding:16px 10px;justify-items:center;align-items:center}
+.swatch{width:48px;height:48px;aspect-ratio:1/1;border-radius:50%!important;border:2px solid var(--surface)!important;outline:1px solid var(--line);outline-offset:0;display:block;padding:0;}
+.swatch.active{outline:2px solid var(--teal);outline-offset:3px;border-color:#fff!important}
+.custom-colour-row input[type=color]{height:48px;width:48px;border-radius:50%;overflow:hidden;border:3px solid var(--surface);outline:1px solid var(--line);padding:0;background:transparent}
+/* The floating monitor mirrors the supplied compact image + owner + server + blue log layout. */
+.float-bubble{width:58px;height:58px;border-radius:50%;overflow:hidden;padding:0;background:var(--surface);border:3px solid #fff;touch-action:none;cursor:grab;user-select:none;display:none;place-items:center;box-shadow:0 8px 24px color-mix(in srgb,var(--teal) 38%,transparent)}
+.float-bubble img{height:100%;width:100%;object-fit:cover;border-radius:50%;display:block}
+.float-bubble.show{display:grid}
+.float-panel{width:min(360px,calc(100vw - 22px));max-height:min(76svh,620px);border-radius:13px;overflow:auto;background:#070b14;border:1px solid #526071;color:#fff;box-shadow:0 18px 55px #0009;overscroll-behavior:contain}
+.float-panel-hero{height:116px;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:12px 14px;background:#0b0e18;cursor:grab;touch-action:none;user-select:none}
+.float-panel-hero:active{cursor:grabbing}
+.float-panel-hero>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 43%;opacity:.84}
+.float-panel-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.88),rgba(0,0,0,.38) 75%),linear-gradient(0deg,rgba(0,0,0,.85),transparent 70%);pointer-events:none}
+.float-panel-copy{position:relative;z-index:1;max-width:calc(100% - 45px)}
+.float-panel-copy strong{font-size:13px;line-height:1.1;letter-spacing:.01em;display:block}
+.float-panel-copy .owner{font-size:10px;color:#e2e5eb;margin-top:4px}
+.float-panel-copy .connection{font-size:9px;color:#57e69d;font-weight:750;margin-top:6px;display:flex;align-items:center;gap:5px}
+.float-panel-copy .connection i{height:6px;width:6px;border-radius:50%;background:#4ce28c;display:inline-block;box-shadow:0 0 7px #4ce28c}
+.float-panel-close{position:absolute;z-index:3;right:9px;top:9px;height:28px;width:28px;border-radius:50%;background:#07101dbb;border:1px solid #ffffff55;color:#fff;font-size:18px;display:grid;place-items:center}
+.float-panel-controls{display:flex;align-items:center;gap:7px;padding:9px 10px;background:#0b111c;border-bottom:1px solid #263447}
+.float-panel-controls button{height:31px;border-radius:7px;padding:0 10px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;font-weight:800;letter-spacing:.03em}
+.float-skip{background:#ffb04a;color:#211305}
+.float-logs-toggle{background:#202c3c;color:#e9f2ff;border:1px solid #45546a}
+.float-live{margin-left:auto;display:inline-flex;align-items:center;gap:5px;border:1px solid #2d8054;background:#102e22;color:#68eda6;padding:6px 8px;border-radius:20px;font-size:8px;font-weight:850}
+.float-panel-body{padding:10px;background:#080e19}
+.float-status-card{padding:10px 11px;border:1px solid #25384e;border-radius:8px;background:#101b2b;margin-bottom:9px}
+.float-status-card .signal-title{font-size:11px;font-weight:800;color:#f1f5fb}
+.float-status-card .signal-detail{font-size:9px;color:#9fb1c8;margin-top:4px;line-height:1.35}
+.float-log{background:linear-gradient(155deg,#0756e5,#0735ae);color:#e9f3ff;border:1px solid #347dff;border-radius:8px;padding:10px 11px;margin-top:8px;font:9px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;box-shadow:inset 0 0 18px #002c8c55;max-height:190px;overflow:auto;white-space:pre-wrap}
+.float-log .log-good{color:#80ffb0}.float-log .log-warn{color:#ffe18d}
+.float-panel-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px 10px;color:#8397af;font-size:8px;background:#080e19}
+.float-panel-footer button{height:28px;border-radius:7px;background:#d92c40;color:#fff;font-size:9px;font-weight:850;padding:0 12px}
+.float-panel .drag-hint{display:none}
+:root[data-theme="light"] .nav{background:#fff}
+:root[data-theme="light"] .nav-cap{background:#ececf1}
+:root[data-theme="light"] .float-panel{box-shadow:0 18px 55px #34465a55}
+@media(max-width:360px){.robot-actions{gap:7px}.nav button.nav-tab{font-size:8px}.nav button.nav-tab .nav-icon-wrap{height:36px;width:36px}.nav button.nav-tab.add .nav-icon-wrap{height:51px;width:51px}.float-panel-controls{gap:5px;padding:8px}.float-panel-controls button{padding:0 7px;font-size:8px}}
+
+
+/* The chosen accent is shared by every primary robot action and control surface. */
+.robot-actions .action-primary,.robot-actions .action-secondary{background:var(--teal);color:var(--btn-text);border:1px solid var(--teal);box-shadow:0 5px 18px color-mix(in srgb,var(--teal) 22%,transparent)}
+.btn.secondary{background:color-mix(in srgb,var(--teal) 12%,var(--surface));color:var(--teal);border-color:color-mix(in srgb,var(--teal) 32%,var(--line))}
+:root[data-theme="light"] .status{color:var(--text)}
+
+
+
+/* BTECH refinement pass: consistent 8px control corners and corrected navigation geometry. */
+/* Every rectangular action/button uses one corner radius across the entire application. */
+button:not(.nav-tab):not(.swatch):not(.switch):not(.float-bubble){border-radius:8px!important}
+.btn,.tabbar button,.seg button,.theme-mode button,.market,.broker,.float-panel-controls button,
+.float-panel-footer button,.float-panel-close,.topicon,.link,.custom-colour-row button{border-radius:8px!important}
+/* Keep circular controls circular by design. */
+.swatch,.switch,.float-bubble,.nav .nav-icon-wrap{border-radius:50%}
+
+/* The hero begins immediately under the phone status bar; the app brand sits on top of it. */
+#shell.home-with-art .top{
+ position:absolute;z-index:12;top:32px;left:0;right:0;width:100%;
+ padding:10px 21px 16px;
+ background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 72%,transparent);
+ color:#fff;
+}
+#shell.home-with-art .brandname{color:#fff;text-shadow:0 1px 8px #0009}
+#shell.home-with-art .brandmark{background:var(--teal);color:var(--btn-text);box-shadow:none}
+#shell.home-with-art .topicon{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.38);color:#fff}
+#shell.home-with-art .status{position:relative;z-index:13;background:transparent;color:#fff}
+#shell.home-with-art .robot-hero{margin-top:0}
+.robot-hero{height:50svh;min-height:285px;max-height:440px;border:0;border-radius:0}
+.robot-hero img{object-position:center 42%}
+
+/* Navigation rail split: 25% muted header strip + 75% item area. */
+.nav{height:82px;padding:0;border-radius:20px;overflow:visible;box-shadow:0 10px 28px #0002}
+.nav-cap{height:25%;left:0;right:0;top:0;border-radius:20px 20px 0 0;background:var(--nav-strip)}
+.nav-active-marker{top:auto;bottom:0;height:3px;background:var(--teal);transition:left .2s ease,width .2s ease}
+.nav-items{position:absolute;left:0;right:0;top:25%;height:75%;padding:0 7px 3px;align-items:stretch;justify-content:space-around}
+.nav button.nav-tab{height:100%;min-height:0;gap:1px;border-radius:0!important;justify-content:center;padding:0;position:relative}
+.nav button.nav-tab .nav-icon-wrap{height:39px;width:39px;border:2px solid transparent;background:transparent;box-shadow:none;transform:none}
+.nav button.nav-tab .nav-label{display:block;line-height:1.1}
+/* Pre-robot/default navigation: the active state is the top line only. */
+.nav:not(.has-robot) button.nav-tab.active{color:var(--teal);background:transparent}
+.nav:not(.has-robot) button.nav-tab.active .nav-icon-wrap{background:transparent;border-color:transparent;box-shadow:none;transform:none}
+/* After robot authentication: raise only the active icon, with a clear 3px strip-colour ring. */
+.nav.has-robot button.nav-tab.active{color:var(--teal);background:transparent}
+.nav.has-robot button.nav-tab.active .nav-icon-wrap{
+ width:54px;height:54px;flex:none;transform:translateY(-8px);
+ background:var(--surface);border:3px solid var(--nav-strip);box-shadow:none;
+}
+.nav.has-robot button.nav-tab.active .nav-label{position:absolute;left:0;right:0;bottom:4px;line-height:1.1}
+/* The centre Add action remains raised only in the five-item default navigation. */
+.nav:not(.has-robot) button.nav-tab.add .nav-icon-wrap{
+ width:56px;height:56px;flex:none;transform:translateY(-13px);
+ background:var(--teal);color:var(--btn-text);border:3px solid var(--surface);
+ box-shadow:none;
+}
+.nav:not(.has-robot) button.nav-tab.add .nav-label{display:none}
+.nav.has-robot .nav-active-marker{display:none}
+:root[data-theme="light"] .nav{box-shadow:0 8px 22px #34465a18}
+
+/* Floating panel: top half uses the same full-bleed EA art treatment as Home. */
+.float-panel{border-radius:8px!important;box-shadow:0 14px 34px #0005}
+.float-panel-hero{height:clamp(178px,24svh,215px);min-height:178px;border-radius:8px 8px 0 0;padding:14px 15px}
+.float-panel-hero>img{object-position:center 42%;opacity:1}
+.float-panel-hero:after{
+ background:linear-gradient(90deg,rgba(0,0,0,.72),rgba(0,0,0,.12) 85%),
+            linear-gradient(180deg,rgba(0,0,0,.06) 35%,rgba(0,0,0,.7) 100%);
+}
+.float-panel-copy{max-width:calc(100% - 42px);text-shadow:0 1px 7px #000b}
+.float-panel-controls button,.float-panel-footer button,.float-panel-close{border-radius:8px!important}
+.float-panel-body{padding:10px}
+.float-panel .float-status-card,.float-panel .float-log{border-radius:8px}
+.float-panel .float-panel-footer{border-radius:0 0 8px 8px}
+
+/* Apply the same radius to buttons generated inline or within cards, while preserving pills/swatches. */
+.card button:not(.switch):not(.swatch),.modal button,.empty button,.custom-colour-row button{border-radius:8px!important}
+
+
+/* Profile-selectable navigation styles. Add is always level with the other items. */
+.nav button.nav-tab.add{height:100%;min-width:0;flex:1;background:transparent;color:var(--muted);border-radius:0!important;box-shadow:none;font-size:9px}
+.nav button.nav-tab.add .nav-icon-wrap{height:39px;width:39px;transform:none!important;background:transparent!important;color:currentColor;border:2px solid transparent;box-shadow:none!important}
+.nav button.nav-tab.add .nav-label{display:block}
+.nav.nav-style-indicator .nav-active-marker{display:block}
+.nav.nav-style-indicator button.nav-tab.active{color:var(--teal);background:transparent}
+.nav.nav-style-indicator button.nav-tab.active .nav-icon-wrap{height:39px;width:39px;transform:none!important;background:transparent;border:2px solid transparent;box-shadow:none}
+.nav.nav-style-indicator button.nav-tab.active .nav-label{position:static;color:inherit}
+.nav.nav-style-indicator button.nav-tab.add.active .nav-icon-wrap{background:transparent!important;border-color:transparent!important}
+.nav.nav-style-pill .nav-active-marker,.nav.nav-style-raised .nav-active-marker{display:none!important}
+.nav.nav-style-pill button.nav-tab.active{color:var(--teal);background:transparent}
+.nav.nav-style-pill button.nav-tab.active::before{content:"";position:absolute;z-index:0;left:50%;top:50%;transform:translate(-50%,-50%);width:calc(100% - 6px);max-width:82px;height:39px;border-radius:999px;background:var(--teal-d)}
+.nav.nav-style-pill button.nav-tab.active .nav-icon-wrap{height:31px;width:31px;transform:none!important;background:transparent;border:0;box-shadow:none;position:relative;z-index:1}
+.nav.nav-style-pill button.nav-tab.active .nav-label{position:relative;z-index:1;color:inherit}
+.nav.nav-style-pill button.nav-tab.add.active .nav-icon-wrap{background:transparent!important;border-color:transparent!important}
+.nav.nav-style-raised button.nav-tab.active{color:var(--teal);background:transparent}
+.nav.nav-style-raised button.nav-tab.active .nav-icon-wrap{height:42px;width:42px;flex:none;transform:translateY(-4px)!important;background:var(--surface);border:3px solid var(--nav-strip);box-shadow:none!important}
+.nav.nav-style-raised button.nav-tab.active .nav-label{position:static;display:block;line-height:1.1;color:inherit;margin-top:0}
+.nav.nav-style-raised button.nav-tab.add.active .nav-icon-wrap{background:var(--surface)!important;color:var(--teal);border-color:var(--nav-strip)!important}
+/* Small previews shown in Profile use the same three visual rules as the real menu. */
+.nav-style-options{display:grid;gap:10px}
+.nav-style-option{width:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,1.08fr);align-items:center;gap:12px;padding:11px;background:var(--surface2);border:1px solid var(--line);color:var(--text);text-align:left;border-radius:8px!important}
+.nav-style-option.selected{border:1px solid var(--teal);background:color-mix(in srgb,var(--teal) 8%,var(--surface2))}
+.nav-style-option-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.nav-style-option-copy strong{font-size:12px}
+.nav-style-option-copy small{font-size:9px;color:var(--muted);line-height:1.4}
+.nav-style-choice{font-size:8px;font-weight:850;letter-spacing:.06em;color:var(--teal);margin-top:2px}
+.nav-style-preview{height:66px;position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+.nav-preview-cap{height:25%;position:relative;background:var(--nav-strip)}
+.nav-preview-marker{position:absolute;left:0;bottom:0;width:20%;height:3px;background:var(--teal)}
+.nav-preview-items{height:75%;display:flex;align-items:center;justify-content:space-around;padding:0 2px}
+.nav-preview-item{min-width:0;flex:1;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;color:var(--muted);font-size:7px}
+.nav-preview-icon{height:27px;width:27px;display:grid;place-items:center;border:2px solid transparent;border-radius:50%;position:relative;z-index:1}
+.nav-preview-item small{font-size:7px;line-height:1.1;position:relative;z-index:1}
+.nav-preview-item.active{color:var(--teal)}
+.preview-indicator .nav-preview-item.active .nav-preview-icon{background:transparent;border-color:transparent}
+.preview-pill .nav-preview-marker,.preview-raised .nav-preview-marker{display:none}
+.preview-pill .nav-preview-item.active:before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);height:31px;width:calc(100% - 3px);border-radius:30px;background:var(--teal-d)}
+.preview-pill .nav-preview-item.active .nav-preview-icon{border:0}
+.preview-raised .nav-preview-item.active .nav-preview-icon{height:30px;width:30px;transform:translateY(-3px);border:3px solid var(--nav-strip);background:var(--surface)}
+@media(max-width:380px){.nav-style-option{grid-template-columns:1fr;gap:8px}.nav-style-preview{height:62px}}
+
+
+
+/* BTECH navigation specification v5: exactly three selectable styles. */
+:root{--nav-strip:#e9e9ee;--nav-top-outline:#e9e9ee;--nav-bottom-outline:var(--surface)}
+:root[data-theme="dark"]{--nav-strip:#22232a;--nav-top-outline:#22232a;--nav-bottom-outline:var(--surface)}
+:root[data-theme="light"]{--nav-strip:#ececf1;--nav-top-outline:#ececf1;--nav-bottom-outline:var(--surface)}
+.nav{height:82px;padding:0;overflow:visible;background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 28px #0002}
+.nav-cap{height:25%;left:0;right:0;top:0;display:block;border-radius:20px 20px 0 0;background:var(--nav-strip);overflow:hidden}
+.nav-active-marker{position:absolute;left:0;right:auto;top:auto;bottom:0;height:3px;background:var(--teal);transition:left .2s ease,width .2s ease}
+.nav-items{position:absolute;left:0;right:0;top:25%;height:75%;padding:0 7px 2px;display:flex;align-items:stretch;justify-content:space-around}
+.nav button.nav-tab,.nav button.nav-tab.add{height:100%;min-height:0;min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:0;background:transparent;color:var(--muted);border-radius:0!important;box-shadow:none;font-size:9px;font-weight:650;position:relative}
+.nav button.nav-tab .nav-icon-wrap{height:38px;width:38px;flex:none;display:grid;place-items:center;border-radius:50%;border:3px solid transparent;background:transparent;color:currentColor;box-shadow:none;transform:none;transition:transform .18s ease,border-color .18s ease,background .18s ease}
+.nav button.nav-tab .nav-label{display:block;position:static;line-height:1.1;color:inherit;margin:0;padding:0}
+.nav button.nav-tab .lucide{width:21px;height:21px}
+.nav button.nav-tab.active{color:var(--teal);background:transparent}
+.nav button.nav-tab.add{color:var(--muted)}
+.nav button.nav-tab.add .nav-icon-wrap{height:38px;width:38px;transform:none;background:transparent;color:currentColor;border:3px solid transparent;box-shadow:none}
+.nav button.nav-tab.add .nav-label{display:block}
+/* Style 1 — default: no raised icons or circles; only the accent marker at the 25/75 boundary. */
+.nav.nav-style-indicator .nav-cap{display:block}
+.nav.nav-style-indicator .nav-active-marker{display:block}
+.nav.nav-style-indicator .nav-items{top:25%;height:75%;padding:0 7px 2px}
+.nav.nav-style-indicator button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-indicator button.nav-tab.add.active .nav-icon-wrap{height:38px;width:38px;transform:none;background:transparent;border:3px solid transparent;box-shadow:none}
+.nav.nav-style-indicator.has-robot button.nav-tab .nav-label{position:static;display:block;line-height:1.1;margin:0;padding:0}
+/* Styles 2 and 3: no strip or line. Only the active icon rises; its label is never inside the circle. */
+.nav.nav-style-raised-top .nav-cap,.nav.nav-style-raised-bottom .nav-cap{display:none}
+.nav.nav-style-raised-top .nav-active-marker,.nav.nav-style-raised-bottom .nav-active-marker{display:none}
+.nav.nav-style-raised-top .nav-items,.nav.nav-style-raised-bottom .nav-items{top:0;height:100%;padding:2px 7px 2px}
+.nav.nav-style-raised-top button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-raised-top button.nav-tab.add.active .nav-icon-wrap{height:36px;width:36px;transform:translateY(-6px);background:var(--surface2);border:3px solid var(--nav-top-outline);box-shadow:none}
+.nav.nav-style-raised-bottom button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-raised-bottom button.nav-tab.add.active .nav-icon-wrap{height:36px;width:36px;transform:translateY(-6px);background:var(--surface2);border:3px solid var(--nav-bottom-outline);box-shadow:none}
+.nav.nav-style-raised-top button.nav-tab.active .nav-label,
+.nav.nav-style-raised-bottom button.nav-tab.active .nav-label{position:static;display:block;line-height:1.1;margin:0;padding:0;color:inherit}
+/* Profile previews mirror the live menu: top line for default, small icon-only rings for the other two. */
+.nav-style-preview{height:66px;position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+.nav-preview-cap{height:25%;position:relative;background:var(--nav-strip)}
+.nav-preview-marker{position:absolute;left:0;bottom:0;width:20%;height:3px;background:var(--teal)}
+.nav-preview-items{position:relative;height:100%;display:flex;align-items:center;justify-content:space-around;padding:0 2px}
+.preview-indicator .nav-preview-items{height:75%;}
+.nav-preview-item{min-width:0;height:100%;flex:1;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;color:var(--muted);font-size:7px}
+.nav-preview-icon{height:31px;width:31px;display:grid;place-items:center;border:3px solid transparent;border-radius:50%;position:relative;z-index:1;background:transparent}
+.nav-preview-item small{font-size:7px;line-height:1.1;position:relative;z-index:1}
+.nav-preview-item.active{color:var(--teal)}
+.preview-indicator .nav-preview-cap{display:block}
+.preview-indicator .nav-preview-marker{display:block}
+.preview-indicator .nav-preview-item.active .nav-preview-icon{height:31px;width:31px;transform:none;border-color:transparent;background:transparent}
+.preview-raised-top .nav-preview-cap,.preview-raised-bottom .nav-preview-cap{display:none}
+.preview-raised-top .nav-preview-items,.preview-raised-bottom .nav-preview-items{height:100%}
+.preview-raised-top .nav-preview-item.active .nav-preview-icon{height:29px;width:29px;transform:translateY(-4px);border:3px solid var(--nav-top-outline);background:var(--surface2)}
+.preview-raised-bottom .nav-preview-item.active .nav-preview-icon{height:29px;width:29px;transform:translateY(-4px);border:3px solid var(--nav-bottom-outline);background:var(--surface2)}
+@media(max-width:380px){.nav-style-option{grid-template-columns:1fr;gap:8px}.nav-style-preview{height:62px}}
+
+
+/* BTECH v6 corrections: retain the upper nav header in every style. */
+.nav.nav-style-indicator .nav-cap,
+.nav.nav-style-raised-top .nav-cap,
+.nav.nav-style-raised-bottom .nav-cap{display:block!important;height:25%;}
+.nav.nav-style-raised-top .nav-active-marker,
+.nav.nav-style-raised-bottom .nav-active-marker{display:none!important;}
+.nav.nav-style-raised-top .nav-items,
+.nav.nav-style-raised-bottom .nav-items{top:25%;height:75%;padding:0 7px 2px;}
+.nav.nav-style-raised-top button.nav-tab.active .nav-icon-wrap{
+  width:36px;height:36px;flex:none;transform:translateY(-6px)!important;
+  background:var(--surface);border:3px solid var(--nav-top-outline);box-shadow:none!important;
+}
+.nav.nav-style-raised-bottom button.nav-tab.active .nav-icon-wrap{
+  width:36px;height:36px;flex:none;transform:translateY(-6px)!important;
+  background:var(--surface);border:3px solid var(--nav-bottom-outline);box-shadow:none!important;
+}
+.nav.nav-style-raised-top button.nav-tab.active .nav-label,
+.nav.nav-style-raised-bottom button.nav-tab.active .nav-label{position:static;display:block;margin:0;padding:0;line-height:1.1;}
+.nav.nav-style-indicator button.nav-tab.add .nav-icon-wrap{transform:none!important;}
+.nav-style-preview .nav-preview-cap{display:block!important;height:25%;}
+.preview-raised-top .nav-preview-cap,.preview-raised-bottom .nav-preview-cap{display:block!important;}
+.preview-raised-top .nav-preview-items,.preview-raised-bottom .nav-preview-items{height:75%;}
+.preview-raised-top .nav-preview-item.active .nav-preview-icon{height:29px;width:29px;transform:translateY(-4px);border:3px solid var(--nav-top-outline);background:var(--surface);}
+.preview-raised-bottom .nav-preview-item.active .nav-preview-icon{height:29px;width:29px;transform:translateY(-4px);border:3px solid var(--nav-bottom-outline);background:var(--surface);}
+.tabbar .tab-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:3px;border-radius:999px;background:var(--teal-d);color:var(--teal);font-size:9px;font-weight:850;vertical-align:middle;}
+
+/* Floating monitor follows the selected app appearance. Its EA artwork remains photographic. */
+:root[data-theme="light"] .float-panel{background:var(--surface);color:var(--text);border-color:var(--line);box-shadow:0 14px 34px #34465a33;}
+:root[data-theme="light"] .float-panel-controls{background:var(--surface2);border-color:var(--line);}
+:root[data-theme="light"] .float-logs-toggle{background:var(--surface3);color:var(--text);border-color:var(--line);}
+:root[data-theme="light"] .float-panel-body{background:var(--surface);}
+:root[data-theme="light"] .float-status-card{background:var(--surface2);border-color:var(--line);}
+:root[data-theme="light"] .float-status-card .signal-title{color:var(--text);}
+:root[data-theme="light"] .float-status-card .signal-detail{color:var(--muted);}
+:root[data-theme="light"] .float-panel-footer{background:var(--surface2);color:var(--muted);}
+:root[data-theme="light"] .float-panel-close{background:rgba(255,255,255,.88);border-color:rgba(24,37,52,.22);color:#182534;}
+:root[data-theme="light"] .float-live{border-color:#8ed5ad;background:#e5f8ec;color:#167745;}
+
+
+/* v8: background broker connection UX, explicit custom-colour confirmation, and a stable Allowed Symbols shortcut */
+.allowed-home-shortcut{width:100%;display:flex;align-items:center;gap:11px;margin-top:12px;padding:12px 13px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:left}
+.allowed-home-icon{height:36px;width:36px;display:grid;place-items:center;border-radius:50%;background:var(--teal-d);color:var(--teal);flex:none}
+.allowed-home-copy{flex:1;min-width:0}.allowed-home-copy strong{display:block;font-size:12px}.allowed-home-copy small{display:block;margin-top:4px;color:var(--muted);font-size:10px}.allowed-home-count{min-width:27px;height:27px;padding:0 7px;display:grid;place-items:center;border-radius:50%;background:var(--teal);color:var(--btn-text);font-size:11px;font-weight:850}.allowed-home-arrow{font-size:21px;color:var(--muted)}
+.allowed-symbol-list .market{cursor:pointer;min-height:64px}.connection-flow-note{margin:15px 0;padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--surface2);font-size:10px;color:var(--muted);line-height:1.45}.connection-flow-note strong{color:var(--text);font-size:11px}.connection-flow-note ol{margin:8px 0 0;padding-left:17px}.connection-flow-note li{margin:5px 0}.connection-success{display:flex;align-items:center;gap:10px;padding:11px 12px;background:var(--green-d);border:1px solid color-mix(in srgb,var(--green) 40%,var(--line));border-radius:10px;color:var(--green)}.connection-success .dot{height:9px;width:9px;border-radius:50%;background:currentColor;flex:none}.connection-success strong{display:block;font-size:11px}.connection-success small{display:block;margin-top:4px;font-size:9px;opacity:.85;word-break:break-all}.auth-progress{display:flex;justify-content:center;gap:7px;padding:14px}.auth-progress span{height:7px;width:7px;border-radius:50%;background:var(--teal);animation:btechPulse .8s infinite alternate}.auth-progress span:nth-child(2){animation-delay:.2s}.auth-progress span:nth-child(3){animation-delay:.4s}@keyframes btechPulse{from{opacity:.25;transform:scale(.8)}to{opacity:1;transform:scale(1.2)}}
+.custom-preview-row{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:10px}.custom-preview-dot{height:20px;width:20px;border:2px solid var(--text);border-radius:50%;display:inline-block}
+
+
+
+/* BTECH agreed refinement pass — targeted overrides only. */
+:root[data-theme="dark"]{
+ --bg:#0b1a30;
+ --surface:#102743;
+ --surface2:#183554;
+ --surface3:#224568;
+ --line:#345371;
+ --text:#eef5ff;
+ --muted:#a5b7cc;
+ --card-bg:linear-gradient(155deg,#1b3d63,#102743);
+ --input-bg:#0c213b;
+ --nav-strip:#1b3554;
+ --nav-top-outline:#1b3554;
+ --nav-bottom-outline:var(--surface);
+ --shadow:0 16px 38px #020b18a8;
+}
+:root[data-theme="dark"] body{
+ background:radial-gradient(ellipse at 50% -20%,#244e7b 0%,#163453 43%,var(--bg) 80%);
+ color:var(--text);
+}
+
+/* Default menu: level icons, no icon movement, thinner active indicator. */
+.nav.nav-style-indicator .nav-active-marker{height:2px!important;}
+.nav.nav-style-indicator button.nav-tab .nav-icon-wrap,
+.nav.nav-style-indicator button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-indicator button.nav-tab.add .nav-icon-wrap,
+.nav.nav-style-indicator button.nav-tab.add.active .nav-icon-wrap{
+ transform:none!important;
+ transition:background .18s ease,border-color .18s ease,color .18s ease!important;
+}
+.nav.nav-style-indicator .nav-active-marker{transition:left .2s ease,width .2s ease;}
+
+/* Keep Add readable in light and dark modes, matching the other inactive destinations. */
+.nav button.nav-tab.add,
+.nav button.nav-tab.add .nav-icon-wrap,
+.nav button.nav-tab.add .nav-label{color:var(--muted)!important;}
+.nav button.nav-tab.add .nav-icon-wrap{background:transparent!important;border-color:transparent!important;}
+.nav button.nav-tab.add.active,
+.nav button.nav-tab.add.active .nav-icon-wrap,
+.nav button.nav-tab.add.active .nav-label{color:var(--teal)!important;}
+
+/* Raised styles: retain the two navigation surface colours and strengthen only the ring. */
+.nav.nav-style-raised-top button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-raised-top button.nav-tab.add.active .nav-icon-wrap{border-width:4px!important;}
+.nav.nav-style-raised-bottom button.nav-tab.active .nav-icon-wrap,
+.nav.nav-style-raised-bottom button.nav-tab.add.active .nav-icon-wrap{border-width:4px!important;}
+.preview-indicator .nav-preview-marker{height:2px;}
+.preview-raised-top .nav-preview-item.active .nav-preview-icon,
+.preview-raised-bottom .nav-preview-item.active .nav-preview-icon{border-width:4px;}
+.preview-raised-top .nav-preview-marker,.preview-raised-bottom .nav-preview-marker{display:none!important;}
+
+/* Circular image clipping for the draggable floating launcher. */
+.float-bubble{
+ border-radius:50%!important;
+ overflow:hidden!important;
+ clip-path:circle(50% at 50% 50%);
+ isolation:isolate;
+ -webkit-appearance:none;
+ appearance:none;
+}
+.float-bubble img{
+ display:block;
+ width:100%;
+ height:100%;
+ object-fit:cover;
+ object-position:center center;
+ border-radius:50%!important;
+ clip-path:circle(50% at 50% 50%);
+}
+
+/* Only the two floating-window identity lines move and stay white in both themes. */
+.float-panel-title{
+ position:absolute;
+ z-index:2;
+ left:15px;
+ right:48px;
+ top:11px;
+ color:#fff!important;
+ text-shadow:0 1px 7px #000b;
+ pointer-events:none;
+}
+.float-panel-title strong{
+ display:block;
+ max-width:100%;
+ overflow:hidden;
+ white-space:nowrap;
+ text-overflow:ellipsis;
+ color:#fff!important;
+ font-size:15px;
+ font-weight:800;
+ line-height:1.15;
+ letter-spacing:.01em;
+}
+.float-panel-title .owner{
+ display:block;
+ max-width:100%;
+ overflow:hidden;
+ white-space:nowrap;
+ text-overflow:ellipsis;
+ color:#fff!important;
+ font-size:10px;
+ font-weight:500;
+ line-height:1.2;
+ margin-top:4px;
+}
+
+</style>
+</head>
+<body>
+<div id="shell">
+ <div class="status"><span>9:41</span><span>● ▮ ▰</span></div>
+ <header class="top"><div class="brand"><div class="brandmark">B</div><div class="brandname">BTECH FINANCE</div></div><button class="topicon" onclick="toast('No new notifications')">⌁</button></header>
+ <main id="app"></main>
+ <nav id="bottomNav" class="nav"></nav>
+</div>
+<button id="floatBubble" class="float-bubble" aria-label="Open BTECH floating monitor"><img src="images/ASTRA_avatar.jpg" alt="Open robot monitor"></button>
+<div id="floatPanel" class="float-panel" aria-label="Movable BTECH trading monitor"></div>
+<div id="modalRoot" class="modal-backdrop"></div><div id="toast" class="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+
+const demoArtworkData = "images/ASTRA.jpg";
+const demoAvatarData = "images/ASTRA_avatar.jpg";
+const iconPaths = {
+  home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  meta:'<path d="M3 3v18h18"/><path d="M7 14h2v4H7zM12 8h2v10h-2zM17 11h2v7h-2z"/>',
+  profile:'<circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  settings:'<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.6.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.6-.9l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.9l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.6-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.6.9l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1 0 1.8Z"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  play:'<path d="m7 4 13 8-13 8z"/>',
+  stop:'<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  symbols:'<path d="M4 19V5M4 19h16"/><path d="M7 15h3V9H7zM14 12h3V5h-3z"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  log:'<path d="M4 5h16M4 10h16M4 15h10M4 20h8"/>',
+  pause:'<path d="M8 5v14M16 5v14"/>',
+  close:'<path d="m18 6-12 12M6 6l12 12"/>'
+};
+function iconSvg(name,size=22){return `<svg class="lucide" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name]||iconPaths.info}</svg>`}
+
+const markets=[['XAUUSD','Gold vs US Dollar'],['EURUSD','Euro vs US Dollar'],['GBPUSD','British Pound vs US Dollar'],['DE30m','Germany 40 Index'],['US30','Dow Jones Index'],['USTECm','Nasdaq 100 Index']];
+// Seed broker catalogue for the prototype. Production Portal records will override/add
+// broker -> platform -> exact server -> terminal URL mappings.
+// JustMarkets mappings use the broker-specific domains supplied by the user.
+const METAQUOTES_MT5_DEMO_URL='https://trade.metatrader5.com';
+const METAQUOTES_MT4_WEB_URL='https://metatraderweb.app/trade';
+const brokers=[
+ {id:'Exness',logo:'ex',name:'Exness',summary:'Server list and terminal URL managed by Portal',platforms:{MT5:[],MT4:[]}},
+ {id:'HF Markets',logo:'HF',name:'HF Markets',summary:'Server list and terminal URL managed by Portal',platforms:{MT5:[],MT4:[]}},
+ {id:'JustMarkets',logo:'JM',name:'JustMarkets',summary:'MT5 · 5 demo servers · 5 live servers · MT4 custom server',platforms:{
+  MT5:[
+   {id:'jm-demo',name:'JustMarkets-Demo',environment:'Demo',terminalUrl:'https://demo.justmarkets.com'},
+   {id:'jm-demo2',name:'JustMarkets-Demo2',environment:'Demo',terminalUrl:'https://demo2.justmarkets.com'},
+   {id:'jm-demo3',name:'JustMarkets-Demo3',environment:'Demo',terminalUrl:'https://demo3.justmarkets.com'},
+   {id:'jm-demo6',name:'JustMarkets-Demo6',environment:'Demo',terminalUrl:'https://demo6.justmarkets.com'},
+   {id:'jm-demo7',name:'JustMarkets-Demo7',environment:'Demo',terminalUrl:'https://demo7.justmarkets.com'},
+   {id:'jm-live',name:'JustMarkets-Live',environment:'Live',terminalUrl:'https://live.justmarkets.com'},
+   {id:'jm-live2',name:'JustMarkets-Live2',environment:'Live',terminalUrl:'https://live2.justmarkets.com'},
+   {id:'jm-live3',name:'JustMarkets-Live3',environment:'Live',terminalUrl:'https://live3.justmarkets.com'},
+   {id:'jm-live6',name:'JustMarkets-Live6',environment:'Live',terminalUrl:'https://live6.justmarkets.com'},
+   {id:'jm-live7',name:'JustMarkets-Live7',environment:'Live',terminalUrl:'https://live7.justmarkets.com'}
+  ],MT4:[]
+ }},
+ {id:'MetaQuotes',logo:'5',name:'MetaQuotes',summary:'MetaQuotes-Demo · MT5 demo terminal',platforms:{
+  MT5:[{id:'mq-demo',name:'MetaQuotes-Demo',environment:'Demo',terminalUrl:METAQUOTES_MT5_DEMO_URL}],MT4:[]
+ }},
+ {id:'JP Markets',logo:'JP',name:'JP Markets',summary:'Server list and terminal URL managed by Portal',platforms:{MT5:[],MT4:[]}},
+ {id:'Weltrade',logo:'W',name:'Weltrade',summary:'Server list and terminal URL managed by Portal',platforms:{MT5:[],MT4:[]}}
+];
+const savedNavStyle=(()=>{try{return localStorage.getItem('btech-nav-style')||'indicator'}catch(_){return 'indicator'}})();
+const allowedNavStyles=['indicator','raised-top','raised-bottom'];
+const migratedNavStyle=savedNavStyle==='raised'?'raised-top':savedNavStyle==='pill'?'raised-bottom':savedNavStyle;
+if(migratedNavStyle!==savedNavStyle){try{localStorage.setItem('btech-nav-style',migratedNavStyle)}catch(_){}}
+function readDemoArray(key){try{const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v:[]}catch(_){return []}}
+function readDemoValue(key,fallback){try{return localStorage.getItem(key)||fallback}catch(_){return fallback}}
+const state={route:'home',hasRobot:false,running:false,allowed:readDemoArray('btech-allowed-symbols'),symbolTab:'allowed',symbol:null,symbolConfig:{platform:'MT5',lot:'0.01',direction:'BOTH',trades:'4',live:true},broker:'JustMarkets',platform:'MT5',login:'',password:'',mt4Server:'',mt4Servers:{},serverId:'jm-live',server:'JustMarkets-Live',saved:null,authBusy:false,customAccentDraft:'#9138ee',accent:readDemoValue('btech-accent','#9138ee'),themeMode:'dark',navStyle:allowedNavStyles.includes(migratedNavStyle)?migratedNavStyle:'indicator',profileName:'BTECH Client',execution:'idle',executionStep:0,profitReady:false,profitTimer:null,portalMenu:true,floatBubblePos:null,floatPanelPos:null,artworkUrl:null,botName:'BTECH SCALPER V2.3',botOwner:'Bee Blessings',botServer:'JustMarke-Live',logsVisible:false,skipTrading:false};
+try{document.documentElement.style.setProperty('--teal',state.accent);document.documentElement.style.setProperty('--teal-d',hexToRgba(state.accent,.17));document.documentElement.style.setProperty('--btn-text',contrastText(state.accent));}catch(_){}
+function brokerConfig(name=state.broker){return brokers.find(b=>b.name===name)||null}
+function availableServers(name=state.broker,platform=state.platform){return brokerConfig(name)?.platforms?.[platform]||[]}
+function selectedServer(){return availableServers().find(s=>s.id===state.serverId)||availableServers()[0]||null}
+function syncServer(){const list=availableServers();let match=list.find(s=>s.id===state.serverId);if(!match)match=list[0]||null;state.serverId=match?.id||'';state.server=match?.name||'';}
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
+function currentTerminal(){
+ if(state.platform==='MT5'){
+  const server=selectedServer();
+  return server?{name:server.name,id:server.id,broker:state.broker,platform:'MT5'}:null;
+ }
+ const name=(state.mt4Servers[state.broker]||state.mt4Server||'').trim();
+ return name?{name,id:'mt4-custom',broker:state.broker,platform:'MT4'}:null;
+}
+function setAccent(v,notify=true){if(!/^#[0-9a-f]{6}$/i.test(v))return;state.accent=v;const root=document.documentElement;root.style.setProperty('--teal',v);root.style.setProperty('--teal-d',hexToRgba(v,.17));root.style.setProperty('--btn-text',contrastText(v));document.querySelectorAll('.swatch').forEach(el=>el.classList.toggle('active',el.dataset.color?.toLowerCase()===v.toLowerCase()));try{localStorage.setItem('btech-accent',v)}catch(_){}if(notify)toast('Custom theme colour applied across the app');}
+function updateCustomAccentDraft(v){if(/^#[0-9a-f]{6}$/i.test(v)){state.customAccentDraft=v;const preview=$('customAccentPreview');if(preview)preview.style.background=v;}}
+function applyCustomAccent(){setAccent(state.customAccentDraft||state.accent,true);closeModal();render();}
+function hexToRgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+function contrastText(hex){const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;return (0.299*r+0.587*g+0.114*b)>155?'#14202b':'#ffffff'}
+function setThemeMode(mode){state.themeMode=mode;document.documentElement.dataset.theme=mode;render();}
+function setNavStyle(style){if(!allowedNavStyles.includes(style))return;state.navStyle=style;try{localStorage.setItem('btech-nav-style',style)}catch(_){}render();toast('Navigation style updated')}
+function toast(msg,type='success'){const el=$('toast');el.textContent=msg;el.classList.toggle('error',type==='error');el.classList.add('show');clearTimeout(el._tm);el._tm=setTimeout(()=>el.classList.remove('show'),3000)}
+function go(route){state.route=route;render();window.scrollTo(0,0)}
+function pageHead(title,sub){return `<h1 class="page-title">${title}</h1><p class="page-sub">${sub}</p>`}
+function cardStart(extra=''){return `<section class="card ${extra}">`}
+function btn(label,action,cls='btn full'){return `<button class="${cls}" onclick="${action}">${label}</button>`}
+function nav(){
+ const items=state.hasRobot?[
+  {icon:'home',label:'Home',route:'home'},
+  {icon:'meta',label:'Meta',route:'meta'},
+  {icon:'profile',label:'Profile',route:'profile'},
+  {icon:'settings',label:'Settings',route:'settings'}
+ ]:[
+  {icon:'home',label:'Home',route:'home'},
+  {icon:'meta',label:'Meta',route:'meta'},
+  {icon:'plus',label:'Add',route:'add',add:true},
+  {icon:'profile',label:'Profile',route:'profile'},
+  {icon:'settings',label:'Settings',route:'settings'}
+ ];
+ const activeIndex=Math.max(0,items.findIndex(x=>x.route===state.route));
+ $('bottomNav').classList.toggle('has-robot',state.hasRobot);
+ $('bottomNav').className=`nav nav-style-${state.navStyle}${state.hasRobot?' has-robot':''}`;$('bottomNav').innerHTML=`<div class="nav-cap"><span class="nav-active-marker" style="left:${activeIndex*100/items.length}%;width:${100/items.length}%"></span></div><div class="nav-items">${items.map(item=>`<button class="nav-tab ${state.route===item.route?'active':''} ${item.add?'add':''}" aria-label="${item.label}" onclick="${item.add?"go('add')":`go('${item.route}')`}"><span class="nav-icon-wrap">${iconSvg(item.icon,item.add?21:21)}</span><span class="nav-label">${item.label}</span></button>`).join('')}</div>`;
+}
+function robotArtwork(){const src=state.artworkUrl||demoArtworkData;return `<section class="robot-hero" aria-label="Portal uploaded EA artwork"><img src="${src}" alt="EA artwork supplied by the BTECH Portal"></section>`}
+function robotArtworkCompact(){const src=state.artworkUrl||demoArtworkData;return `<div class="robot-art-compact"><img src="${src}" alt="EA artwork"></div>`}
+function render(){document.getElementById('shell').classList.toggle('home-with-art',state.route==='home'&&state.hasRobot);nav();$('floatBubble').classList.toggle('show',state.running&&!window.BTECHNative);const launcherImage=$('floatBubble')?.querySelector('img');if(launcherImage)launcherImage.src=state.artworkUrl||demoAvatarData;const root=$('app');switch(state.route){case'home':root.innerHTML=home();break;case'add':root.innerHTML=addRobot();break;case'symbols':root.innerHTML=symbols();break;case'symbolConfig':root.innerHTML=symbolConfig();break;case'info':root.innerHTML=info();break;case'meta':root.innerHTML=meta();break;case'login':root.innerHTML=login();break;case'saved':root.innerHTML=saved();break;case'profile':root.innerHTML=profile();break;case'settings':root.innerHTML=settings();break;default:root.innerHTML=home();}}
+function home(){
+ if(!state.hasRobot)return `${pageHead('My robot','Your trading assistant will appear here.')}<section class="card empty"><div class="empty-orb">${iconSvg('symbols',35)}</div><h2 style="font-size:20px;margin:0 0 9px">No robot connected</h2><p class="muted small" style="line-height:1.6;margin:0 auto 22px;max-width:260px">Add a licensed BTECH robot to receive signals and manage its trading settings from your phone.</p>${btn('ADD YOUR FIRST ROBOT',"go('add')")}<div class="hint" style="margin-top:15px">The + button is available in the bottom menu until a robot is added.</div></section><div class="demo-note">Demo prototype: licence authentication is simulated here. Production authentication will verify the key against the BTECH Portal.</div>`;
+ return `${robotArtwork()}<div class="robot-actions">
+  <button class="action-primary" onclick="toggleBot()"><span class="action-icon">${iconSvg(state.running?'stop':'play',20)}</span><span class="action-label">${state.running?'STOP':'START'}</span></button>
+  <button class="action-secondary" onclick="openAllowedSymbols()"><span class="action-icon">${iconSvg('symbols',20)}</span><span class="action-label">SYMBOLS</span></button>
+  <button class="action-secondary" onclick="go('info')"><span class="action-icon">${iconSvg('info',20)}</span><span class="action-label">INFO</span></button>
+ </div><div class="card robot-summary"><div class="thumb"><img src="${state.artworkUrl||demoArtworkData}" alt="Robot"></div><div class="summary-copy"><strong>${state.botName}</strong><small>Licence plan: PRO</small><em>Expires: 31 Dec 2026</em></div><span class="pill ${state.running?'green':'amber'}">${state.running?'RUNNING':'STOPPED'}</span></div><button type="button" class="allowed-home-shortcut" onclick="openAllowedSymbols()"><span class="allowed-home-icon">${iconSvg('symbols',18)}</span><span class="allowed-home-copy"><strong>Allowed Symbols</strong><small>${state.allowed.length} ${state.allowed.length===1?'symbol':'symbols'} saved · Tap to review or edit</small></span><span class="allowed-home-count">${state.allowed.length}</span><span class="allowed-home-arrow">›</span></button>`;
+}
+function addRobot(){return `${pageHead('Add a robot','Enter the licence key issued for your BTECH EA.')}<section class="card" style="padding:23px 18px;text-align:center"><div class="empty-orb" style="margin-bottom:13px">⚿</div><div class="eyebrow">ROBOT AUTHENTICATION</div><h2 style="font-size:18px;margin:8px 0">Authenticate your EA</h2><p class="muted small" style="line-height:1.55">Paste your licence key below. BTECH will verify its validity, expiry and access status with the Portal.</p><div class="field" style="text-align:left"><label>LICENCE KEY</label><input id="licenseKey" class="input" placeholder="Paste your licence key here" autocomplete="off"><div class="hint">Use your phone's normal paste action inside this field. No separate paste button is needed.</div></div>${btn('AUTHENTICATE',"authenticate()") }<div class="hint" style="margin-top:13px">A valid key adds the robot and updates your bottom menu.</div></section><div class="demo-note">DEMO ONLY: enter any key with 8 or more characters to preview the successful flow. This does not contact the real BTECH licence service.</div><button class="link" style="margin-top:15px" onclick="go('home')">← Back to Home</button>`}
+function authenticate(){const key=$('licenseKey')?.value.trim()||'';if(key.length<8){toast('Please enter a valid-looking licence key');return}state.hasRobot=true;showModal('Authentication Successful','Your robot has been added. You can now configure allowed symbols and start the bot.','✓','CONTINUE TO HOME',()=>{closeModal();go('home')},'green');}
+function openAllowedSymbols(){state.symbolTab='allowed';go('symbols')}
+function symbols(){const tab=state.symbolTab||'allowed';return `${pageHead('Symbols','Choose which markets this robot is allowed to trade.')}<div class="tabbar"><button type="button" class="${tab==='all'?'active':''}" onclick="state.symbolTab='all';render()">ALL SYMBOLS</button><button type="button" class="${tab==='allowed'?'active':''}" onclick="openAllowedSymbols()">ALLOWED SYMBOLS <span class="tab-count">${state.allowed.length}</span></button></div>${tab==='allowed'?allowedList():allSymbols()}<div class="hint" style="margin:12px 5px">The available market list is published for this specific EA by its owner in the BTECH Portal. Tap any allowed symbol to reopen and edit its saved configuration.</div>`}
+function allowedList(){if(!state.allowed.length)return `<section class="card empty" style="margin-top:16px"><div class="empty-orb">◎</div><h2 style="font-size:18px;margin:0 0 8px">No Symbol Allowed</h2><p class="muted small" style="line-height:1.55">This robot cannot trade any market until you choose one from All Symbols.</p>${btn('BROWSE ALL SYMBOLS',"state.symbolTab='all';render()")}</section>`;return `<div style="margin-top:14px"><div class="between"><span class="pill green">${state.allowed.length} ALLOWED</span><span class="muted tiny">Tap a row to view or edit settings</span></div><div class="allowed-symbol-list">${state.allowed.map(a=>marketCard(a.symbol,true)).join('')}</div></div>`}
+function allSymbols(){return `<div class="between" style="margin:15px 2px 9px"><span class="pill">${markets.length} MARKETS PUBLISHED</span><span class="muted tiny">Tap to configure</span></div>${markets.map(a=>marketCard(a[0],false,a[1])).join('')}`}
+function marketCard(sym,allowed,desc=''){const a=state.allowed.find(v=>v.symbol===sym);const action=allowed?`openAllowedSymbol('${sym}')`:`openSymbol('${sym}')`;return `<button type="button" class="market" style="width:100%;text-align:left;color:var(--text)" aria-label="${allowed?'Edit':'Configure'} ${escapeHtml(sym)}" onclick="${action}"><span class="market-icon">${escapeHtml(sym.slice(0,2))}</span><span class="market-main"><strong>${escapeHtml(sym)}</strong><small>${a?`MT${a.platform==='MT5'?'5':'4'} · Lot ${escapeHtml(a.lot)} · ${escapeHtml(a.trades)} trades · ${a.live?'Live':'Off'}`:escapeHtml(desc)}</small></span><span class="plus">${allowed?'›':'+'}</span></button>`}
+function symbolConfigFromSaved(a){return {platform:a.platform||'MT5',lot:a.lot||'0.01',direction:a.direction||'BOTH',trades:a.trades||'4',live:a.live!==false}}
+function openSymbol(sym){const saved=state.allowed.find(v=>v.symbol===sym);state.symbol=sym;state.symbolConfig=saved?symbolConfigFromSaved(saved):{platform:'MT5',lot:'0.01',direction:'BOTH',trades:'4',live:true};go('symbolConfig')}
+function openAllowedSymbol(sym){const saved=state.allowed.find(v=>v.symbol===sym);if(!saved){toast('This symbol is no longer in Allowed Symbols');state.symbolTab='all';render();return}state.symbol=sym;state.symbolConfig={...symbolConfigFromSaved(saved)};go('symbolConfig')}
+function symbolConfig(){const sym=state.symbol||'XAUUSD',cfg=state.symbolConfig;return `${pageHead(sym+' settings','Set the execution rules for this market.')}<section class="card" style="padding:13px"><div class="row"><div class="thumb">${sym.slice(0,2)}</div><div><strong>${sym}</strong><div class="hint">Market published for this EA by the Portal</div></div></div></section><div class="field"><label>PLATFORM</label><div class="seg"><button class="${cfg.platform==='MT5'?'active':''}" onclick="setCfg('platform','MT5')">MT5</button><button class="${cfg.platform==='MT4'?'active':''}" onclick="setCfg('platform','MT4')">MT4</button></div></div><div class="row"><div class="field" style="flex:1"><label>LOT VOLUME</label><input class="input" id="lot" type="number" min="0.01" step="0.01" value="${cfg.lot}" oninput="state.symbolConfig.lot=this.value"></div><div class="field" style="flex:1"><label>NUMBER OF TRADES</label><input class="input" id="trades" type="number" min="1" max="100" value="${cfg.trades}" oninput="state.symbolConfig.trades=this.value"></div></div><div class="field"><label>DIRECTION</label><div class="seg">${['BUY','SELL','BOTH'].map(x=>`<button class="${cfg.direction===x?'active':''}" onclick="setCfg('direction','${x}')">${x}</button>`).join('')}</div><div class="hint">Direction is included because it appears in the supplied symbol-configuration reference.</div></div><section class="card between" style="padding:14px;margin:8px 0 16px"><div><strong style="font-size:12px">Enable live trades</strong><div class="hint">Allow this symbol to execute on the linked account.</div></div><button class="switch ${cfg.live?'':'off'}" onclick="state.symbolConfig.live=!state.symbolConfig.live;render()"><span></span></button></section>${btn('SAVE SYMBOL',"saveSymbol()") }<button class="link" onclick="go('symbols')">Cancel</button>`}
+function setCfg(k,v){state.symbolConfig[k]=v;render()}
+function saveSymbol(){const c=state.symbolConfig;if(!state.symbol){toast('Choose a symbol first');return}if(!c.lot||Number(c.lot)<=0||!c.trades||Number(c.trades)<1){toast('Check lot volume and number of trades');return}const prev=state.allowed.find(x=>x.symbol===state.symbol);const item={symbol:state.symbol,platform:c.platform,lot:String(c.lot),direction:c.direction,trades:String(c.trades),live:c.live!==false};if(prev)Object.assign(prev,item);else state.allowed.push(item);try{localStorage.setItem('btech-allowed-symbols',JSON.stringify(state.allowed))}catch(_){}state.symbolTab='allowed';toast(state.symbol+(prev?' settings updated':' added to Allowed Symbols'));go('symbols')}
+function info(){return `${pageHead('Robot information','Review the owner and details linked to this licence.')}<section class="card">${robotArtworkCompact()}<h2 style="font-size:17px;margin:13px 0 4px">${state.botName}</h2><span class="pill green">ACTIVE</span><div class="info-grid" style="margin-top:15px"><div class="info-cell"><small>OWNER</small><strong>${state.botOwner}</strong></div><div class="info-cell"><small>OWNER ROLE</small><strong>Expertise Mentor</strong></div><div class="info-cell"><small>EA DETAILS</small><strong>Forex & indices scalper</strong></div><div class="info-cell"><small>LICENCE PLAN</small><strong>PRO</strong></div><div class="info-cell"><small>EXPIRY DATE</small><strong style="color:var(--amber)">31 Dec 2026</strong></div><div class="info-cell"><small>STATUS</small><strong style="color:var(--green)">Active</strong></div></div></section><div style="margin-top:16px">${btn('REMOVE ROBOT',"confirmRemove()",'btn danger full')}</div><div class="hint">Removing disconnects this robot from this app. You can authenticate it again later if the Portal licence remains valid.</div>`}
+function confirmRemove(){showModal('Remove this robot?','This will disconnect the EA from this app and stop its signal delivery here. Continue only if you want to remove it.','!','CONFIRM REMOVE',()=>{closeModal();state.hasRobot=false;state.running=false;state.allowed=[];try{localStorage.removeItem('btech-allowed-symbols')}catch(_){}state.execution='idle';$('floatBubble').classList.remove('show');toast('Licence removed successfully');go('home')},'red',true)}
+function meta(){return `${pageHead('MetaTrader','Choose your broker. MT5 servers are filtered to that broker. MT4 lets you enter its exact server name.')}<div class="between" style="margin:0 0 12px"><span class="eyebrow">BROKER DIRECTORY</span><button class="link" onclick="go('saved')">▣ SAVED DETAILS</button></div><div class="field"><input class="input" id="brokerSearch" placeholder="⌕  Search brokers" oninput="filterBrokers(this.value)"></div><div id="brokerList">${brokers.map(b=>brokerCard(b)).join('')}</div><div class="demo-note">In the live BTECH app, this directory and its broker-specific server lists will be loaded from the BTECH Portal. A server from another broker will never appear in this broker's list.</div>`}
+function brokerCard(b){return `<button class="broker" onclick="selectBroker('${b.name}')"><span class="broker-logo">${b.logo}</span><span class="broker-copy"><strong>${b.name}</strong><small>${b.summary}</small></span><span class="server-tag">›</span></button>`}
+function filterBrokers(q){$('brokerList').innerHTML=brokers.filter(b=>b.name.toLowerCase().includes(q.toLowerCase())).map(b=>brokerCard(b)).join('')||'<p class="muted small">No broker matched your search.</p>'}
+function selectBroker(name){state.broker=name;state.mt4Server=state.mt4Servers[name]||'';state.platform='MT5';syncServer();go('login')}
+function login(){
+ const is5=state.platform==='MT5',list=availableServers(),server=selectedServer(),mt4Name=state.mt4Servers[state.broker]||state.mt4Server||'';
+ let serverControl;
+ if(is5){
+  if(list.length){
+   serverControl=`<div class="server-select-wrap"><select class="input" id="serverSelect" onchange="selectServer(this.value)">${['Demo','Live'].map(environment=>{const group=list.filter(item=>item.environment===environment);return group.length?`<optgroup label="${environment} servers">${group.map(s=>`<option value="${s.id}" ${s.id===state.serverId?'selected':''}>${s.name}</option>`).join('')}</optgroup>`:''}).join('')}${list.filter(item=>!item.environment).map(s=>`<option value="${s.id}" ${s.id===state.serverId?'selected':''}>${s.name}</option>`).join('')}</select></div>${server?`<div class="server-note">Selected MT5 server: <strong>${escapeHtml(server.name)}</strong><div class="server-url">Broker server mapping: ${escapeHtml(server.name)}</div></div>`:''}`;
+  }else{
+   serverControl=`<div class="server-note">No MT5 server has been configured for this broker yet. Ask the Portal administrator to add its exact server and connection mapping.</div>`;
+  }
+ }else{
+  serverControl=`<input class="input" id="mt4ServerValue" type="text" autocomplete="off" placeholder="Enter or paste the exact MT4 server name" value="${escapeHtml(mt4Name)}" oninput="updateMt4Server(this.value)"><div class="server-note">Enter the exact MT4 server name supplied by your broker. The app will use the MT4 connection adapter with this server; it will not open a web terminal.</div>`;
+ }
+ const note=is5&&state.broker==='MetaQuotes'?'<div class="hint">MetaQuotes-Demo is configured for demo testing. Real broker accounts require the broker-specific connection adapter.</div>':'';
+ return `${pageHead(state.broker,'Connect your account once. BTECH authenticates in the background and reuses the saved broker connection for future signals.')}<div class="seg" style="margin-bottom:14px"><button class="${is5?'active':''}" onclick="setPlatform('MT5')">MT5 ACCOUNT</button><button class="${!is5?'active':''}" onclick="setPlatform('MT4')">MT4 ACCOUNT</button></div><section class="card" style="padding:19px 16px"><div class="empty-orb" style="height:60px;width:60px;font-size:24px;margin-bottom:12px">◎</div><h3 style="text-align:center;margin:0 0 8px;font-size:16px">MT${is5?'5':'4'} ACCOUNT AUTHENTICATION</h3><p class="hint" style="text-align:center;margin:0 0 16px">Enter your account details once. The app will connect in the background—no browser terminal and no second login screen.</p><div class="field"><label>LOGIN</label><input class="input" id="loginValue" autocomplete="username" placeholder="Enter account login" value="${escapeHtml(state.login)}" oninput="state.login=this.value"></div><div class="field"><label>MASTER / TRADING PASSWORD</label><input class="input" id="passwordValue" type="password" autocomplete="current-password" placeholder="Enter trading password" oninput="state.password=this.value"></div><div class="field"><label>${is5?'MT5':'MT4'} SERVER <span class="muted">— ${escapeHtml(state.broker.toUpperCase())}</span></label>${serverControl}${note}</div><div class="connection-flow-note"><strong>What happens after you tap Authenticate?</strong><ol><li>BTECH sends the credentials securely to its Trade Channel connection service.</li><li>The service checks the account against the selected broker, platform and server.</li><li>On success, it stores a secure connection reference for future signals.</li><li>The app shows the account as authenticated. You are not sent to the web terminal.</li></ol></div>${btn(state.authBusy?'AUTHENTICATING…':'AUTHENTICATE & SAVE ACCOUNT',"authenticateBrokerAccount()",'btn full')}<div class="hint" style="margin-top:12px;text-align:center">Trading access requires the master password. Investor/read-only credentials cannot place orders.</div></section><div class="demo-note"><strong>Prototype behaviour:</strong> the authentication result below is simulated so the coding agent can see the intended screens. The real app must call a supported MT4/MT5 connection API through the BTECH Trade Channel and display success only after that service confirms the broker session. This HTML never submits credentials to a web-terminal page.</div>`
+}
+function setPlatform(p){state.platform=p;if(p==='MT5')syncServer();render()}
+function updateMt4Server(value){state.mt4Server=value;state.mt4Servers[state.broker]=value;}
+function selectServer(id){const match=availableServers().find(s=>s.id===id);if(!match){toast('That server is not configured for this broker');return}state.serverId=match.id;state.server=match.name;render()}
+function authenticateBrokerAccount(){
+ if(state.authBusy)return;
+ const loginValue=$('loginValue')?.value.trim()||state.login.trim();
+ const passwordValue=$('passwordValue')?.value||state.password;
+ if(!loginValue||!passwordValue){toast('Enter your account login and master/trading password');return}
+ const target=currentTerminal();
+ if(!target){toast(state.platform==='MT5'?'This broker has no MT5 connection server configured yet.':'Enter the exact MT4 server name first.');return}
+ state.login=loginValue;state.password='';state.authBusy=true;
+ const account={broker:state.broker,platform:state.platform,login:loginValue,server:target.name,serverId:target.id,status:'connecting',connectionRef:null,savedAt:new Date().toISOString()};
+ state.saved=account;
+ showModal('Authenticating in background','BTECH is checking the login, password, platform and server through the Trade Channel connection service. The web terminal will not open.','◌','CONNECTING…',()=>{},'normal');
+ const cta=$('modalCta');if(cta){cta.disabled=true;cta.style.opacity='.7'}
+ const modal=$('modalRoot').querySelector('.modal');if(modal){const spinner=document.createElement('div');spinner.className='auth-progress';spinner.innerHTML='<span></span><span></span><span></span>';modal.appendChild(spinner)}
+ // UI-only preview: a production implementation must replace this simulation with a server-side API response.
+ window.setTimeout(()=>{
+  state.authBusy=false;state.saved.status='authenticated-preview';state.saved.connectionRef='DEMO-CONNECTION-'+Date.now().toString(36).toUpperCase();state.saved.connectedAt=new Date().toISOString();state.password='';
+  closeModal();go('saved');
+  showModal('Account authenticated successfully','Your broker account is now shown as connected in this prototype. Future signals will reuse the saved connection reference. You will not be asked to enter these login details again.','✓','CONTINUE',()=>{closeModal();go('home')},'green');
+ },1450);
+}
+function saved(){return `${pageHead('Saved trading account','This account connection is reused automatically when a signal arrives.')} ${state.saved?`<section class="card"><div class="row"><div class="broker-logo">${escapeHtml(state.saved.broker.slice(0,2).toUpperCase())}</div><div><strong>${escapeHtml(state.saved.broker)}</strong><div class="hint">${state.saved.platform} trading account</div></div><span class="pill green" style="margin-left:auto">AUTHENTICATED · DEMO</span></div><hr style="border:0;border-top:1px solid var(--line);margin:16px 0"><div class="info-grid"><div class="info-cell"><small>LOGIN</small><strong>••••${escapeHtml(state.saved.login.slice(-4))}</strong></div><div class="info-cell"><small>SERVER</small><strong>${escapeHtml(state.saved.server)}</strong></div><div class="info-cell"><small>PLATFORM</small><strong>${state.saved.platform}</strong></div><div class="info-cell"><small>CONNECTION</small><strong>Connected · Demo</strong></div></div><div class="connection-success" style="margin-top:13px"><span class="dot"></span><div><strong>Broker connection established (demo preview)</strong><small>Demo connection reference: ${escapeHtml(state.saved.connectionRef||'—')}</small></div></div><p class="hint">The app reuses this saved connection for symbol lookup, account checks and trade execution. It does not open the broker web terminal or ask for the password again for each signal.</p><button class="link" onclick="go('login')">Change account credentials</button></section>`:`<section class="card empty"><div class="empty-orb">▣</div><h2 style="font-size:17px">No saved accounts</h2><p class="muted small">Your authenticated broker account will appear here.</p>${btn('CHOOSE A BROKER',"go('meta')")}</section>`}<div class="demo-note"><strong>Important for production:</strong> this HTML uses a simulated connection status. The production Trade Channel must authenticate through an approved MT4/MT5 trading API/connection provider, securely retain credentials or a provider-issued credential reference, monitor connection health, and return a genuine success/failure response. Do not automate or scrape a separate web-terminal page.</div>`}
+function navStylePreview(style){
+ const items=state.hasRobot?[['home','Home'],['meta','Meta'],['profile','Profile'],['settings','Settings']]:[['home','Home'],['meta','Meta'],['plus','Add'],['profile','Profile'],['settings','Settings']];
+ const cap='<div class="nav-preview-cap"><span class="nav-preview-marker"></span></div>';
+ return `<div class="nav-style-preview preview-${style}">${cap}<div class="nav-preview-items">${items.map((it,i)=>`<div class="nav-preview-item ${i===0?'active':''} ${it[0]==='plus'?'add':''}"><span class="nav-preview-icon">${iconSvg(it[0],15)}</span><small>${it[1]}</small></div>`).join('')}</div></div>`
+}
+function profile(){
+ const swatches=['#9138ee','#458df2','#e53952','#16a878','#f2a900','#e34b9b','#12a9b0','#27364b'];
+ const styles=[
+  {id:'indicator',name:'Default — top indicator',desc:'A split header and bottom area. A theme-coloured line sits exactly at their boundary. No icon is raised; Add stays level too.'},
+  {id:'raised-top',name:'Raised icon — upper-colour outline',desc:'The upper header remains visible without an active indicator line. Only the active icon lifts slightly; its 4px outline uses the upper/header colour and the label stays outside.'},
+  {id:'raised-bottom',name:'Raised icon — lower-colour outline',desc:'The upper header remains visible without an active indicator line. Only the active icon lifts slightly; its 4px outline uses the lower/menu colour and the label stays outside.'}
+ ];
+ return `${pageHead('My profile','Client details and appearance preferences.')}<section class="card row"><div class="empty-orb" style="height:56px;width:56px;margin:0;font-size:17px">BT</div><div><strong>${state.profileName}</strong><div class="hint">Client profile</div></div><button class="link" style="margin-left:auto" onclick="editProfile()">EDIT</button></section><div class="section-head"><strong>App appearance</strong><span class="pill">PERSONAL THEME</span></div><section class="card"><div class="between"><strong style="font-size:13px">Display mode</strong><span class="hint" style="margin:0">Light or dark</span></div><div class="theme-mode"><button class="${state.themeMode==='light'?'active':''}" onclick="setThemeMode('light')">☀ LIGHT MODE</button><button class="${state.themeMode==='dark'?'active':''}" onclick="setThemeMode('dark')">☾ DARK MODE</button></div><div class="section-head" style="margin:19px 0 7px"><strong>Theme colour</strong><span class="hint" style="margin:0">Applies across the app</span></div><p class="hint" style="margin:0">The selected accent recolours the main buttons, active navigation, tabs, highlights, floating robot control and other interactive elements.</p><div class="palette">${swatches.map(c=>`<button class="swatch ${state.accent===c?'active':''}" data-color="${c}" aria-label="Choose ${c}" style="background:${c}" onclick="setAccent('${c}');render()"></button>`).join('')}</div><div class="custom-colour-row"><div><strong style="font-size:12px">Custom colour</strong><div class="hint">Open the colour picker to choose any shade.</div></div><button class="btn secondary" style="min-height:38px;padding:0 10px" onclick="openCustomColour()">CUSTOM</button></div><button class="link" onclick="setAccent('#9138ee');render()">Restore BTECH default</button></section><div class="section-head"><strong>Bottom navigation style</strong><span class="pill">3 OPTIONS</span></div><section class="card nav-style-options"><p class="hint" style="margin:0 0 12px">Select one of the three menu designs. The choice changes the active-state appearance only; the Portal still controls which menu destinations are available.</p>${styles.map(st=>`<button type="button" class="nav-style-option ${state.navStyle===st.id?'selected':''}" onclick="setNavStyle('${st.id}')"><div class="nav-style-option-copy"><strong>${st.name}</strong><small>${st.desc}</small><span class="nav-style-choice">${state.navStyle===st.id?'✓ SELECTED':'TAP TO SELECT'}</span></div>${navStylePreview(st.id)}</button>`).join('')}</section><section class="card" style="margin-top:14px"><strong style="font-size:13px">Portal-managed menu items</strong><p class="hint">The EA owner controls which destinations appear in the client app. Your navigation style preference changes their appearance, not the destinations published by the BTECH Portal.</p><span class="pill green">PORTAL MANAGED</span></section>`
+}
+function openCustomColour(){state.customAccentDraft=state.accent;showModal('Choose a custom theme colour','Choose your colour, then press Apply Colour to save it across the app. Cancel leaves your current theme unchanged.','◉','APPLY COLOUR',applyCustomAccent,'normal',false,`<div class="custom-colour-row" style="margin:0 0 15px"><div><strong style="font-size:12px">Custom colour</strong><div class="hint">Tap the colour square to open the full colour picker.</div></div><input id="customAccent" type="color" value="${state.accent}" oninput="updateCustomAccentDraft(this.value)"></div><div class="custom-preview-row"><span id="customAccentPreview" class="custom-preview-dot" style="background:${state.accent}"></span><span>Selected colour preview</span></div><button type="button" class="btn secondary full" style="margin-top:10px" onclick="closeModal()">CANCEL</button><div class="hint" style="margin-top:9px">Your theme changes only after you press the purple Apply Colour button below.</div>`)}
+function editProfile(){const name=prompt('Enter the client display name',state.profileName);if(name&&name.trim()){state.profileName=name.trim();render()}}
+function settings(){return `${pageHead('Settings','Help and information for your BTECH app.')}<div class="card" style="padding:6px">${[['?','Help & Support','FAQs, contact and troubleshooting'],['▤','Terms & Conditions','Review service terms'],['◇','Privacy Policy','How your data is protected'],['⌁','Connection diagnostics','Portal and Trade Channel status'],['ⓘ','About BTECH Finance','App version and legal details']].map((x,i)=>`<button class="between" style="width:100%;background:transparent;color:var(--text);padding:15px 9px;border-bottom:${i===4?0:1}px solid var(--line);text-align:left" onclick="toast('${x[1]} will be connected in the production app')"><span class="row"><span style="height:36px;width:36px;border-radius:11px;background:var(--surface3);display:grid;place-items:center;color:var(--teal)">${x[0]}</span><span><strong style="display:block;font-size:12px">${x[1]}</strong><small class="muted" style="font-size:9px">${x[2]}</small></span></span><span class="muted">›</span></button>`).join('')}</div><div class="demo-note">The visible menu structure is controlled by the EA owner from the BTECH Portal, not edited by the client here.</div>`}
+function startNativeOverlay(){
+ const bridge=window.BTECHNative;
+ if(!bridge||typeof bridge.startBot!=='function')return; // Spck/browser preview: in-page floating control only.
+ try{
+  const accepted=bridge.startBot(String(state.botName||'BTECH Bot'),String(state.botOwner||''),String(state.botServer||''));
+  if(accepted===false)toast('Allow BTECH Finance to display over other apps to keep the floating bot visible.','error');
+ }catch(_){toast('The Android floating overlay could not be started.','error')}
+}
+function stopNativeOverlay(){
+ const bridge=window.BTECHNative;
+ if(bridge&&typeof bridge.stopBot==='function'){try{bridge.stopBot()}catch(_){}}
+}
+window.btechNativeOverlayDenied=function(){state.running=false;state.execution='idle';$('floatBubble').classList.remove('show');closeFloat();render();toast('Overlay permission was not granted. The bot has not been left running.','error')};
+window.btechNativeOverlayStopped=function(){state.running=false;state.execution='idle';$('floatBubble').classList.remove('show');closeFloat();render();};
+function toggleBot(){
+ if(!state.running){
+  if(!state.allowed.length){toast('Choose a symbol to trade first','error');return}
+  if(!state.saved||!String(state.saved.login||'').trim()){
+   toast('Please set your login details','error');return
+  }
+  state.running=true;state.execution='idle';startNativeOverlay();toast('Robot started — floating monitor enabled');
+ }else{
+  state.running=false;state.execution='idle';stopNativeOverlay();$('floatBubble').classList.remove('show');closeFloat();toast('Robot stopped');
+ }
+ render();
+}
+function openFloat(){
+ const root=$('floatPanel');
+ const src=state.artworkUrl||demoArtworkData;
+ const lines=state.profitReady
+  ? `<div>>> LIVE: STARTED</div><div>>> SERVER: ${state.botServer}</div><div>>> SYMBOL: XAUUSD · 4 POSITIONS</div><div class="log-good">>> DONE 4/4 EXECUTED</div><div class="log-good">>> FLOATING P/L: +$18.42</div><div class="log-warn">>> DEMO VALUE — LIVE BROKER FEED NOT CONNECTED</div>`
+  : `<div>>> LIVE: ${state.running?'STARTED':'STOPPED'}</div><div>>> SERVER: ${state.botServer}</div><div>>> SIGNAL CHANNEL: CONNECTED</div><div>>> WAITING FOR SIGNAL...</div><div>>> SYMBOL: XAUUSD</div><div>>> TP 0849.9 · SL 49484.8</div><div class="log-good">>> EXECUTION MONITOR READY</div>`;
+ root.innerHTML=`<div class="float-panel-hero" id="floatPanelHandle"><img src="${src}" alt="EA image"><div class="float-panel-title"><strong>${escapeHtml(state.botName)}</strong><div class="owner">${escapeHtml(state.botOwner)}</div></div><div class="float-panel-copy"><div class="connection"><i></i> Server: Connected · ${state.botServer}</div></div><button class="float-panel-close" onclick="closeFloat()" aria-label="Close floating monitor">×</button></div>
+ <div class="float-panel-controls"><button class="float-skip" onclick="toggleSkipTrading()">${state.skipTrading?'RESUME TRADING':'SKIP TRADES'}</button><button class="float-logs-toggle" onclick="toggleFloatLogs()">${iconSvg('log',14)} <span>${state.logsVisible?'HIDE LOGS':'SHOW LOGS'}</span></button><span class="float-live"><i class="dot"></i> LIVE</span></div>
+ <div class="float-panel-body"><div class="float-status-card"><div class="between"><strong class="signal-title">${state.profitReady?'Execution completed':'Trade Channel monitor'}</strong><span class="pill ${state.profitReady?'green':'green'}">${state.profitReady?'DONE 4/4':'CONNECTED'}</span></div><div id="floatProgress" class="signal-detail">${state.profitReady?'4 positions executed · Floating P/L +$18.42':'Listening for signals from the BTECH Trade Channel.'}</div></div><div id="floatLog" class="float-log ${state.logsVisible?'':'hidden'}">${lines}</div></div>
+ <div class="float-panel-footer"><span>Powered by BTECH Finance</span><button onclick="stopFromFloat()">STOP ROBOT</button></div>`;
+ root.classList.add('show');
+ root.style.left='';root.style.top='';root.style.right='';root.style.bottom='';
+ if(state.floatPanelPos){root.style.left=state.floatPanelPos.x+'px';root.style.top=state.floatPanelPos.y+'px'}
+ else{const r=root.getBoundingClientRect();root.style.left=Math.max(10,Math.min(window.innerWidth-r.width-10,window.innerWidth-r.width-14))+'px';root.style.top=Math.max(58,Math.min(window.innerHeight-r.height-20,window.innerHeight*.28))+'px'}
+ attachPanelDrag();
+}
+function toggleFloatLogs(){state.logsVisible=!state.logsVisible;openFloat()}
+function toggleSkipTrading(){state.skipTrading=!state.skipTrading;toast(state.skipTrading?'Trade execution paused for this demo':'Trade execution resumed');openFloat()}
+
+function closeFloat(){$('floatPanel').classList.remove('show')}
+function toggleFloat(){const panel=$('floatPanel');if(panel.classList.contains('show'))closeFloat();else openFloat()}
+function stopFromFloat(){state.running=false;state.execution='idle';stopNativeOverlay();closeFloat();render();toast('Robot stopped')}
+function clampPosition(x,y,w,h){return {x:Math.max(6,Math.min(window.innerWidth-w-6,x)),y:Math.max(6,Math.min(window.innerHeight-h-6,y))}}
+function makeDraggable(element,handle,onMoved){if(!element||!handle||handle.dataset.dragReady==='1')return;handle.dataset.dragReady='1';let active=false,startX=0,startY=0,originX=0,originY=0,moved=false;handle.addEventListener('pointerdown',e=>{if(e.button!==undefined&&e.button!==0)return;if(e.target.closest('button'))return;const rect=element.getBoundingClientRect();active=true;moved=false;startX=e.clientX;startY=e.clientY;originX=rect.left;originY=rect.top;element.style.left=rect.left+'px';element.style.top=rect.top+'px';element.style.right='auto';element.style.bottom='auto';try{handle.setPointerCapture(e.pointerId)}catch(_){}e.preventDefault()});handle.addEventListener('pointermove',e=>{if(!active)return;const dx=e.clientX-startX,dy=e.clientY-startY;if(Math.abs(dx)+Math.abs(dy)>3)moved=true;const r=clampPosition(originX+dx,originY+dy,element.offsetWidth,element.offsetHeight);element.style.left=r.x+'px';element.style.top=r.y+'px';if(onMoved)onMoved(r)});const finish=e=>{if(!active)return;active=false;if(onMoved){const rect=element.getBoundingClientRect();onMoved({x:rect.left,y:rect.top},moved)} };handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish)}
+function attachPanelDrag(){makeDraggable($('floatPanel'),$('floatPanelHandle'),(p,done)=>{if(done!==false)state.floatPanelPos={x:p.x,y:p.y}})}
+function attachBubbleDrag(){const bubble=$('floatBubble');if(bubble.dataset.dragReady==='1')return;bubble.dataset.dragReady='1';let moved=false,down=false,sx=0,sy=0,ox=0,oy=0;bubble.addEventListener('pointerdown',e=>{if(e.button!==undefined&&e.button!==0)return;const r=bubble.getBoundingClientRect();down=true;moved=false;sx=e.clientX;sy=e.clientY;ox=r.left;oy=r.top;bubble.style.left=r.left+'px';bubble.style.top=r.top+'px';bubble.style.right='auto';bubble.style.bottom='auto';try{bubble.setPointerCapture(e.pointerId)}catch(_){}e.preventDefault()});bubble.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;const p=clampPosition(ox+dx,oy+dy,bubble.offsetWidth,bubble.offsetHeight);bubble.style.left=p.x+'px';bubble.style.top=p.y+'px';state.floatBubblePos=p});const finish=()=>{if(!down)return;down=false;if(!moved)toggleFloat()};bubble.addEventListener('pointerup',finish);bubble.addEventListener('pointercancel',()=>down=false);bubble.addEventListener('click',e=>{if(e.detail===0)toggleFloat()})}
+function showModal(title,body,icon,cta,callback,kind='green',confirm=false,extra=''){const root=$('modalRoot');root.innerHTML=`<div class="modal" onclick="event.stopPropagation()"><div class="modal-icon" style="${kind==='red'?'background:var(--red-d);color:var(--red)':kind==='normal'?'background:var(--teal-d);color:var(--teal)':''}">${icon}</div><h3>${title}</h3><p>${body}</p>${extra}${confirm?`<div class="btnrow" style="margin-top:14px"><button class="btn secondary" onclick="closeModal()">CANCEL</button><button class="btn danger" id="modalCta">${cta}</button></div>`:`<button class="btn full" id="modalCta">${cta}</button>`}</div>`;root.classList.add('show');$('modalCta').onclick=callback;root.onclick=closeModal}
+function closeModal(){$('modalRoot').classList.remove('show');$('modalRoot').innerHTML=''}
+const steps=['New Signal XAUUSD received','Searching Symbol on the connected broker account','Symbol found — preparing trades','Waiting for broker confirmation','Execute trade XAUUSD #1/4','Execute trade XAUUSD #2/4','Execute trade XAUUSD #3/4','Execute trade XAUUSD #4/4','DONE 4/4 Executed'];
+function runDemoSignal(){
+ state.execution='running';state.logsVisible=true;
+ const startLog=()=>{const log=$('floatLog');if(log)log.innerHTML='<div>>> LIVE: STARTED</div><div>>> NEW SIGNAL XAUUSD RECEIVED</div><div>>> SEARCHING SYMBOL</div><div class="log-good">>> SYMBOL FOUND — PREPARING TRADES</div><div>>> WAITING FOR BROKER CONFIRMATION</div>'};
+ startLog();const el=$('floatProgress');if(el)el.textContent='New signal received — processing order updates…';
+ let i=0;const tick=()=>{i++;const p=$('floatProgress');if(p)p.textContent=steps[Math.min(i,steps.length-1)];const log=$('floatLog');if(log){log.innerHTML += `<div>${steps[Math.min(i,steps.length-1)]}</div>`;log.scrollTop=log.scrollHeight}if(i<steps.length-1)setTimeout(tick,850);else{state.execution='done';clearTimeout(state.profitTimer);state.profitReady=false;state.profitTimer=setTimeout(()=>{state.profitReady=true;const p=$('floatProgress');if(p)p.textContent='DONE 4/4 Executed · Floating P/L +$18.42';const log=$('floatLog');if(log)log.innerHTML+='<div class="log-good">>> DONE 4/4 EXECUTED</div><div class="log-good">>> FLOATING P/L: +$18.42</div>';toast('Sample floating profit update is ready')},60000)}};
+ setTimeout(tick,850);
+}
+
+function previewProfit(){state.profitReady=true;state.logsVisible=true;const p=$('floatProgress');if(p)p.textContent='DONE 4/4 Executed · Floating P/L +$18.42';const log=$('floatLog');if(log){log.classList.remove('hidden');log.innerHTML+='<div class="log-good">>> DONE 4/4 EXECUTED</div><div class="log-good">>> FLOATING P/L: +$18.42</div><div class="log-warn">>> SAMPLE PREVIEW — NOT LIVE BROKER DATA</div>'}toast('Sample profit view — live value requires broker connection')}
+function goToLogs(){closeModal();go('logs')}
+// Inline log route uses the same page renderer as a compact dedicated view.
+const oldRender=render;
+render=function(){if(state.route==='logs'){document.getElementById('shell').classList.remove('home-with-art');nav();$('app').innerHTML=`${pageHead('Execution log','Signal lifecycle from Trade Channel to broker confirmation.')}<section class="card"><div class="between"><strong>XAUUSD · BUY</strong><span class="pill green">${state.execution==='done'?'DONE':'LIVE'}</span></div><p class="hint">TP 0849.9 · SL 49484.8</p>${steps.map((s,i)=>`<div class="timeline"><span class="timeline-dot"></span><span class="timeline-copy">${s}<small>${i===0?'Signal received':i===8?'All 4 orders confirmed':'Status update from execution monitor'}</small></span></div>`).join('')}</section><section class="card" style="margin-top:12px"><div class="eyebrow">FLOATING PROFIT</div><div style="font-size:26px;font-weight:800;color:var(--green);margin:8px 0">${state.profitReady?'+$18.42':'Waiting for 60-second update'}</div><div class="hint">${state.profitReady?'4 positions · illustrative P/L':'Profit display becomes available 60 seconds after execution.'}</div></section><button class="link" onclick="go('home')">← Back to Home</button>`;return}oldRender()}
+if(window.BTECHNative&&typeof window.BTECHNative.isRunning==='function'){try{state.running=!!window.BTECHNative.isRunning()}catch(_){}}document.documentElement.dataset.theme=state.themeMode;setAccent(state.accent,false);attachBubbleDrag();window.addEventListener('resize',()=>{if(state.floatBubblePos){const b=$('floatBubble'),p=clampPosition(state.floatBubblePos.x,state.floatBubblePos.y,b.offsetWidth,b.offsetHeight);b.style.left=p.x+'px';b.style.top=p.y+'px';state.floatBubblePos=p}if(state.floatPanelPos){const f=$('floatPanel'),p=clampPosition(state.floatPanelPos.x,state.floatPanelPos.y,f.offsetWidth||340,f.offsetHeight||360);f.style.left=p.x+'px';f.style.top=p.y+'px';state.floatPanelPos=p}});render();
+</script>
+</body>
+</html>

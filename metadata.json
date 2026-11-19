@@ -1,0 +1,6 @@
+{
+  "name": "BTECH FINANCE",
+  "description": "BTECH FINANCE automated trading client prototype with floating overlay monitor and MT4/MT5 Web Terminal simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
