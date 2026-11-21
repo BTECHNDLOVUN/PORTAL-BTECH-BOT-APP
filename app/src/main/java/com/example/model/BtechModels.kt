@@ -85,7 +85,299 @@ data class SimulatedSignalRequest(
     val takeProfit: String,
     val comment: String,
     val tradeCount: Int,
+    val platform: PlatformType? = null,
+    val signalId: String = "",
 )
+
+data class SymbolDiscoveryRequest(
+    val requestedSymbol: String,
+    val broker: String,
+    val platform: PlatformType,
+    val server: String,
+)
+
+data class SymbolDiscoveryResult(
+    val success: Boolean,
+    val requestedSymbol: String,
+    val actualBrokerSymbol: String?,
+    val broker: String,
+    val platform: PlatformType,
+    val server: String,
+    val matchType: String,
+    val message: String,
+    val discoveredSymbols: List<String> = emptyList(),
+)
+
+enum class BrokerResultStatus(val wireValue: String) {
+    ACCEPTED("ACCEPTED"),
+    REJECTED("REJECTED"),
+    UNKNOWN("UNKNOWN");
+
+    companion object {
+        fun fromWire(value: String?): BrokerResultStatus =
+            entries.firstOrNull { it.wireValue.equals(value?.trim(), ignoreCase = true) } ?: UNKNOWN
+    }
+}
+
+data class BrokerTradeResult(
+    val status: BrokerResultStatus,
+    val platform: PlatformType,
+    val requestedSymbol: String,
+    val actualSymbol: String,
+    val direction: String,
+    val lot: String,
+    val tradeIndex: Int,
+    val tradeCount: Int,
+    val confirmedCount: Int,
+    val ticket: String = "",
+    val rawMessage: String = "",
+    val retried: Boolean = false,
+)
+
+data class DiscoveredBrokerCatalog(
+    val broker: String,
+    val platform: PlatformType,
+    val server: String,
+    val symbols: List<String> = emptyList(),
+    val resolvedMappings: Map<String, String> = emptyMap(),
+    val verifiedAliases: Map<String, String> = emptyMap(),
+    val updatedAt: Long = 0L,
+)
+
+data class TradeChannelSignal(
+    val signalId: String,
+    val platform: PlatformType,
+    val symbol: String,
+    val direction: TradeDirection,
+    val lot: String,
+    val stopLoss: String = "",
+    val takeProfit: String = "",
+    val comment: String = "BTECH-EA",
+    val tradeCount: Int = 1,
+) {
+    fun toSignalRequest(): SimulatedSignalRequest {
+        return SimulatedSignalRequest(
+            symbol = symbol,
+            direction = direction,
+            lot = lot,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            comment = comment,
+            tradeCount = tradeCount.coerceIn(1, 20),
+            platform = platform,
+            signalId = signalId,
+        )
+    }
+
+    companion object {
+        fun fromJson(rawJson: String): TradeChannelSignal? {
+            return runCatching {
+                val obj = org.json.JSONObject(rawJson)
+                val symbol = obj.optString("symbol", "").trim()
+                if (symbol.isEmpty()) return null
+                val platformRaw = obj.optString("platform", "MT5").trim().uppercase()
+                val platform = if (platformRaw == "MT4") PlatformType.MT4 else PlatformType.MT5
+                val dirRaw = obj.optString("direction", "BUY").trim().uppercase()
+                val direction = when (dirRaw) {
+                    "SELL" -> TradeDirection.SELL
+                    "BUY" -> TradeDirection.BUY
+                    else -> return null
+                }
+                val lot = obj.optString("lot", "0.01").trim().ifEmpty { "0.01" }
+                val lotVal = lot.toDoubleOrNull()
+                if (lotVal == null || lotVal <= 0.0) return null
+                TradeChannelSignal(
+                    signalId = obj.optString("signal_id", "").trim(),
+                    platform = platform,
+                    symbol = symbol,
+                    direction = direction,
+                    lot = lot,
+                    stopLoss = obj.optString("stop_loss", "").trim(),
+                    takeProfit = obj.optString("take_profit", "").trim(),
+                    comment = obj.optString("comment", "BTECH-EA").trim().ifEmpty { "BTECH-EA" },
+                    tradeCount = obj.optInt("trade_count", 1).coerceIn(1, 20),
+                )
+            }.getOrNull()
+        }
+    }
+}
+
+object BrokerSymbolResolver {
+    val KNOWN_SUFFIXES = listOf(
+        ".m", ".s", ".c", ".ecn", ".pro",
+        ".raw", ".r", ".micro", ".std",
+        ".cent", ".i", "_i", "#",
+    )
+
+    fun normalise(value: String?): String = (value ?: "").trim().uppercase()
+
+    fun cacheKey(broker: String, platform: PlatformType, server: String): String {
+        val b = broker.trim().lowercase().replace("|", "_")
+        val s = server.trim().lowercase().replace("|", "_")
+        return "$b|${platform.name}|$s"
+    }
+
+    fun stripKnownSuffix(symbol: String): String {
+        val value = normalise(symbol)
+        if (value.isEmpty()) return ""
+        for (suffix in KNOWN_SUFFIXES) {
+            val upperSuffix = suffix.uppercase()
+            if (value.endsWith(upperSuffix) && value.length > upperSuffix.length + 2) {
+                return value.dropLast(upperSuffix.length)
+            }
+        }
+        // Handle single trailing micro/cent suffix without trimming standard 6-letter FX pairs
+        if (value.length >= 7 && (value.endsWith("M") || value.endsWith("C"))) {
+            return value.dropLast(1)
+        }
+        return value
+    }
+
+    fun matchRank(
+        actual: String,
+        requested: String,
+        verifiedAliases: Map<String, String> = emptyMap(),
+    ): Int {
+        val aTrim = actual.trim()
+        val rTrim = requested.trim()
+        if (aTrim.isEmpty() || rTrim.isEmpty()) return 0
+
+        if (aTrim == rTrim) return 4
+        if (aTrim.equals(rTrim, ignoreCase = true)) return 3
+
+        val reqUpper = normalise(rTrim)
+        val actUpper = normalise(aTrim)
+        val aliasTarget = verifiedAliases.entries.firstOrNull { (k, _) ->
+            normalise(k) == reqUpper
+        }?.value
+        if (!aliasTarget.isNullOrBlank() && normalise(aliasTarget) == actUpper) {
+            return 2
+        }
+
+        return 0
+    }
+
+    /**
+     * Resolves a requested symbol strictly against a broker+platform+server's discovered
+     * instruments, following strict exact matching priority:
+     * 1. Exact match (including exact broker suffix, e.g. XAUUSD.s != XAUUSD)
+     * 2. Case-insensitive exact match
+     * 3. Explicit broker-specific alias configured AND verified against discovered instruments
+     * 4. Report not found — any suffix mismatch is treated as a different symbol
+     */
+    fun resolve(
+        request: SymbolDiscoveryRequest,
+        discoveredSymbols: List<String>,
+        cachedMappings: Map<String, String> = emptyMap(),
+        verifiedAliases: Map<String, String> = emptyMap(),
+    ): SymbolDiscoveryResult {
+        val requested = request.requestedSymbol.trim()
+        if (requested.isEmpty()) {
+            return SymbolDiscoveryResult(
+                success = false,
+                requestedSymbol = requested,
+                actualBrokerSymbol = null,
+                broker = request.broker,
+                platform = request.platform,
+                server = request.server,
+                matchType = "INVALID_REQUEST",
+                message = "No symbol was supplied",
+                discoveredSymbols = discoveredSymbols,
+            )
+        }
+
+        val cleanedDiscovered = discoveredSymbols
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+        // 1. Exact match against discovered instruments
+        cleanedDiscovered.firstOrNull { it == requested }?.let { hit ->
+            return SymbolDiscoveryResult(
+                success = true,
+                requestedSymbol = requested,
+                actualBrokerSymbol = hit,
+                broker = request.broker,
+                platform = request.platform,
+                server = request.server,
+                matchType = "EXACT",
+                message = "Matched exact broker symbol $hit on ${request.platform.label} (${request.server})",
+                discoveredSymbols = cleanedDiscovered,
+            )
+        }
+
+        // 2. Case-insensitive exact match
+        cleanedDiscovered.firstOrNull { it.equals(requested, ignoreCase = true) }?.let { hit ->
+            return SymbolDiscoveryResult(
+                success = true,
+                requestedSymbol = requested,
+                actualBrokerSymbol = hit,
+                broker = request.broker,
+                platform = request.platform,
+                server = request.server,
+                matchType = "CASE_INSENSITIVE",
+                message = "Matched broker symbol $hit (case-insensitive) for $requested",
+                discoveredSymbols = cleanedDiscovered,
+            )
+        }
+
+        // 3. Previously discovered exact/case-exact mapping for THIS broker + platform + server
+        val cachedHit = cachedMappings.entries.firstOrNull { (k, _) ->
+            k.equals(requested, ignoreCase = true)
+        }?.value?.takeIf { mapped ->
+            mapped.equals(requested, ignoreCase = true) &&
+                (cleanedDiscovered.isEmpty() || cleanedDiscovered.any { it.equals(mapped, ignoreCase = true) })
+        }
+        if (!cachedHit.isNullOrBlank()) {
+            val canonical = cleanedDiscovered.firstOrNull { it.equals(cachedHit, ignoreCase = true) } ?: cachedHit
+            return SymbolDiscoveryResult(
+                success = true,
+                requestedSymbol = requested,
+                actualBrokerSymbol = canonical,
+                broker = request.broker,
+                platform = request.platform,
+                server = request.server,
+                matchType = "BROKER_CACHED",
+                message = "Resolved via verified ${request.broker} ${request.platform.label} mapping: $canonical",
+                discoveredSymbols = cleanedDiscovered,
+            )
+        }
+
+        // 4. Explicit broker-specific alias configured AND verified in discovered symbols
+        val aliasTarget = verifiedAliases.entries.firstOrNull { (alias, _) ->
+            alias.equals(requested, ignoreCase = true)
+        }?.value?.trim()
+        if (!aliasTarget.isNullOrBlank()) {
+            val verifiedInTerminal = cleanedDiscovered.firstOrNull { it.equals(aliasTarget, ignoreCase = true) }
+            if (verifiedInTerminal != null) {
+                return SymbolDiscoveryResult(
+                    success = true,
+                    requestedSymbol = requested,
+                    actualBrokerSymbol = verifiedInTerminal,
+                    broker = request.broker,
+                    platform = request.platform,
+                    server = request.server,
+                    matchType = "VERIFIED_ALIAS",
+                    message = "Resolved via verified broker alias $requested -> $verifiedInTerminal",
+                    discoveredSymbols = cleanedDiscovered,
+                )
+            }
+        }
+
+        // 5. Strict exact match only — unmatched suffixes or different symbols return not found
+        return SymbolDiscoveryResult(
+            success = false,
+            requestedSymbol = requested,
+            actualBrokerSymbol = null,
+            broker = request.broker,
+            platform = request.platform,
+            server = request.server,
+            matchType = "NOT_FOUND",
+            message = "error:Symbol $requested not found",
+            discoveredSymbols = cleanedDiscovered,
+        )
+    }
+}
 
 data class ExecutionStepLog(
     val id: Long,
@@ -112,7 +404,8 @@ object BtechRoutes {
 object BrokerCatalog {
     const val METAQUOTES_MT5_URL = "https://trade.metatrader5.com"
     const val METAQUOTES_MT4_URL = "https://metatraderweb.app/trade"
-    const val JUSTMARKETS_MT4_WEB_URL = "https://webtrader.justmarkets.com"
+    const val JUSTMARKETS_MT5_URL = "https://live.justmarkets.com"
+    const val JUSTMARKETS_MT4_WEB_URL = "https://metatraderweb.app/trade"
 
     val markets = listOf(
         // Gold (XAUUSD / GOLD) + JustMarkets & common broker suffixes
@@ -208,20 +501,20 @@ object BrokerCatalog {
             id = "JustMarkets",
             logo = "JM",
             name = "JustMarkets",
-            summary = "Enter your JustMarkets WebTrader URL (MT4/MT5)",
+            summary = "MT5: live.justmarkets.com · MT4: metatraderweb.app",
             mt5Servers = listOf(
-                BrokerServer("jm-demo", "JustMarkets-Demo", "Demo", "", isUrlVerified = false),
-                BrokerServer("jm-demo2", "JustMarkets-Demo2", "Demo", "", isUrlVerified = false),
-                BrokerServer("jm-demo3", "JustMarkets-Demo3", "Demo", "", isUrlVerified = false),
-                BrokerServer("jm-demo6", "JustMarkets-Demo6", "Demo", "", isUrlVerified = false),
-                BrokerServer("jm-demo7", "JustMarkets-Demo7", "Demo", "", isUrlVerified = false),
-                BrokerServer("jm-live", "JustMarkets-Live", "Live", "", isUrlVerified = false),
-                BrokerServer("jm-live2", "JustMarkets-Live2", "Live", "", isUrlVerified = false),
-                BrokerServer("jm-live3", "JustMarkets-Live3", "Live", "", isUrlVerified = false),
-                BrokerServer("jm-live6", "JustMarkets-Live6", "Live", "", isUrlVerified = false),
-                BrokerServer("jm-live7", "JustMarkets-Live7", "Live", "", isUrlVerified = false),
+                BrokerServer("jm-live", "JustMarkets-Live", "Live", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-live2", "JustMarkets-Live2", "Live", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-live3", "JustMarkets-Live3", "Live", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-live6", "JustMarkets-Live6", "Live", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-live7", "JustMarkets-Live7", "Live", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-demo", "JustMarkets-Demo", "Demo", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-demo2", "JustMarkets-Demo2", "Demo", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-demo3", "JustMarkets-Demo3", "Demo", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-demo6", "JustMarkets-Demo6", "Demo", JUSTMARKETS_MT5_URL, isUrlVerified = true),
+                BrokerServer("jm-demo7", "JustMarkets-Demo7", "Demo", JUSTMARKETS_MT5_URL, isUrlVerified = true),
             ),
-            defaultMt4TerminalUrl = JUSTMARKETS_MT4_WEB_URL,
+            defaultMt4TerminalUrl = METAQUOTES_MT4_URL,
         ),
         BrokerInfo(
             id = "MetaQuotes",
@@ -242,6 +535,7 @@ object BrokerCatalog {
                 BrokerServer("exness-mt5-trial", "Exness-MT5Trial", "Demo", "", isUrlVerified = false),
                 BrokerServer("exness-mt5-real", "Exness-MT5Real", "Live", "", isUrlVerified = false),
             ),
+            defaultMt4TerminalUrl = METAQUOTES_MT4_URL,
         ),
         BrokerInfo(
             id = "HF Markets",
@@ -252,6 +546,7 @@ object BrokerCatalog {
                 BrokerServer("hfm-demo", "HFMarketsSV-Demo", "Demo", "", isUrlVerified = false),
                 BrokerServer("hfm-live", "HFMarketsSV-Live", "Live", "", isUrlVerified = false),
             ),
+            defaultMt4TerminalUrl = METAQUOTES_MT4_URL,
         ),
         BrokerInfo(
             id = "JP Markets",
@@ -262,6 +557,7 @@ object BrokerCatalog {
                 BrokerServer("jp-demo", "JPMarkets-Demo", "Demo", "", isUrlVerified = false),
                 BrokerServer("jp-live", "JPMarkets-Live", "Live", "", isUrlVerified = false),
             ),
+            defaultMt4TerminalUrl = METAQUOTES_MT4_URL,
         ),
         BrokerInfo(
             id = "Weltrade",
@@ -272,6 +568,7 @@ object BrokerCatalog {
                 BrokerServer("wt-demo", "Weltrade-Demo", "Demo", "", isUrlVerified = false),
                 BrokerServer("wt-live", "Weltrade-Real", "Live", "", isUrlVerified = false),
             ),
+            defaultMt4TerminalUrl = METAQUOTES_MT4_URL,
         ),
     )
 
@@ -284,9 +581,78 @@ object BrokerCatalog {
             normalized.contains("trade.mql5.com")
     }
 
-    fun requiresBrokerOwnUrlWarning(brokerName: String, url: String): Boolean {
+    fun isUrlPlatformMismatch(url: String, platform: PlatformType): Boolean {
+        val normalized = url.trim().lowercase()
+        if (normalized.isEmpty()) return false
+        return when (platform) {
+            PlatformType.MT4 ->
+                normalized.contains("live.justmarkets.com") ||
+                    normalized.contains("trade.metatrader5.com") ||
+                    normalized.contains("version=5")
+            PlatformType.MT5 ->
+                normalized.contains("metatraderweb.app") ||
+                    normalized.contains("version=4")
+        }
+    }
+
+    fun requiresBrokerOwnUrlWarning(
+        brokerName: String,
+        url: String,
+        platform: PlatformType = PlatformType.MT5,
+    ): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return true
+        if (isUrlPlatformMismatch(trimmed, platform)) return true
+        val normalized = trimmed.lowercase()
+        if (platform == PlatformType.MT4 && normalized.contains("metatraderweb.app")) return false
+        if (brokerName == "JustMarkets" && platform == PlatformType.MT5 && normalized.contains("live.justmarkets.com")) return false
         return brokerName != "MetaQuotes" && isGenericTerminalUrl(trimmed)
+    }
+
+    /**
+     * Applies RoboTrader's separate MT4 (/trade?version=4&login=&server=) and
+     * MT5 (/terminal?login=&server=) route patterns on official MetaQuotes/MetaTrader hosts
+     * while preserving broker-specific custom WebTrader URLs (e.g. https://live.justmarkets.com for MT5) untouched.
+     */
+    fun buildLaunchUrl(
+        rawUrl: String,
+        platform: PlatformType,
+        login: String = "",
+        server: String = "",
+    ): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty()) return ""
+        val withScheme = if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+        val lower = withScheme.lowercase()
+        val encLogin = java.net.URLEncoder.encode(login.trim(), "UTF-8")
+        val encServer = java.net.URLEncoder.encode(server.trim(), "UTF-8")
+
+        return when {
+            lower.contains("live.justmarkets.com") -> withScheme
+            lower.contains("metatraderweb.app") && platform == PlatformType.MT4 -> {
+                val base = withScheme.substringBefore("?").trimEnd('/')
+                val pathUrl = if (base.lowercase().endsWith("/trade")) base else "$base/trade"
+                val params = buildList {
+                    add("version=4")
+                    if (login.isNotBlank()) add("login=$encLogin")
+                    if (server.isNotBlank()) add("server=$encServer")
+                }
+                "$pathUrl?${params.joinToString("&")}"
+            }
+            lower.contains("trade.metatrader5.com") && platform == PlatformType.MT5 -> {
+                val base = withScheme.substringBefore("?").trimEnd('/')
+                val pathUrl = if (base.lowercase().endsWith("/terminal")) base else "$base/terminal"
+                val params = buildList {
+                    if (login.isNotBlank()) add("login=$encLogin")
+                    if (server.isNotBlank()) add("server=$encServer")
+                }
+                if (params.isEmpty()) pathUrl else "$pathUrl?${params.joinToString("&")}"
+            }
+            else -> withScheme
+        }
     }
 }

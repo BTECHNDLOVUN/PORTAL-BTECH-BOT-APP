@@ -55,11 +55,20 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.R
 import com.example.service.OverlaySnapshot
+import com.example.ui.theme.BtechGreenLight
+import com.example.ui.theme.BtechLightBg
+import com.example.ui.theme.BtechLightLine
+import com.example.ui.theme.BtechLightMuted
+import com.example.ui.theme.BtechLightSurface
+import com.example.ui.theme.BtechLightSurface2
+import com.example.ui.theme.BtechLightText
+import com.example.ui.theme.LocalBtechColors
 import kotlin.math.roundToInt
 
 /**
  * In-app draggable floating bubble and expandable monitor card faithfully matching
- * the HTML prototype (#floatBubble + #floatPanel) with real-time account balance updates.
+ * the HTML prototype (#floatBubble + #floatPanel), adapting the dark outer/card
+ * backgrounds to light surfaces when Light Mode is active.
  */
 @Composable
 fun BtechFloatingOverlay(
@@ -71,6 +80,31 @@ fun BtechFloatingOverlay(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var logsVisible by remember { mutableStateOf(true) }
+
+    val extra = LocalBtechColors.current
+    val isDark = extra.isDark || snapshot.isDarkTheme
+
+    val bubbleBg = if (isDark) Color(0xFF102743) else BtechLightSurface
+    val bubbleBorder = if (isDark) Color.White else BtechLightLine
+
+    val panelBg = if (isDark) Color(0xFF070B14) else BtechLightSurface
+    val panelBorder = if (isDark) Color(0xFF526071) else BtechLightLine
+
+    val controlsBg = if (isDark) Color(0xFF0B111C) else BtechLightSurface2
+    val logsBtnBg = if (isDark) Color(0xFF202C3C) else BtechLightSurface
+    val logsBtnBorder = if (isDark) Color(0xFF45546A) else BtechLightLine
+    val logsBtnText = if (isDark) Color(0xFFE9F2FF) else BtechLightText
+
+    val dividerColor = if (isDark) Color(0xFF263447) else BtechLightLine
+    val bodyBg = if (isDark) Color(0xFF080E19) else BtechLightBg
+
+    val statusCardBg = if (isDark) Color(0xFF101B2B) else BtechLightSurface
+    val statusCardBorder = if (isDark) Color(0xFF25384E) else BtechLightLine
+    val statusTitleColor = if (isDark) Color(0xFFF1F5FB) else BtechLightText
+    val balanceColor = if (isDark) Color(0xFF41D39A) else BtechGreenLight
+    val mutedTextColor = if (isDark) Color(0xFF9FB1C8) else BtechLightMuted
+    val refreshTint = if (isDark) Color(0xFF68EDA6) else BtechGreenLight
+    val footerCopyColor = if (isDark) Color(0xFF8397AF) else BtechLightMuted
 
     BoxWithConstraints(
         modifier = modifier
@@ -105,8 +139,8 @@ fun BtechFloatingOverlay(
                     .clickable { expanded = true }
                     .testTag("in_app_floating_bubble"),
                 shape = CircleShape,
-                color = Color(0xFF102743),
-                border = BorderStroke(3.dp, Color.White),
+                color = bubbleBg,
+                border = BorderStroke(3.dp, bubbleBorder),
                 shadowElevation = 12.dp,
             ) {
                 Image(
@@ -127,8 +161,8 @@ fun BtechFloatingOverlay(
                     .widthIn(max = 360.dp)
                     .testTag("in_app_floating_panel"),
                 shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF070B14),
-                border = BorderStroke(1.dp, Color(0xFF526071)),
+                color = panelBg,
+                border = BorderStroke(1.dp, panelBorder),
                 shadowElevation = 18.dp,
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -248,7 +282,7 @@ fun BtechFloatingOverlay(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF0B111C))
+                            .background(controlsBg)
                             .padding(horizontal = 10.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -276,8 +310,8 @@ fun BtechFloatingOverlay(
                             onClick = { logsVisible = !logsVisible },
                             modifier = Modifier.height(31.dp),
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF202C3C),
-                            border = BorderStroke(1.dp, Color(0xFF45546A)),
+                            color = logsBtnBg,
+                            border = BorderStroke(1.dp, logsBtnBorder),
                         ) {
                             Box(
                                 modifier = Modifier.padding(horizontal = 10.dp),
@@ -285,7 +319,7 @@ fun BtechFloatingOverlay(
                             ) {
                                 Text(
                                     text = if (logsVisible) "HIDE LOGS" else "SHOW LOGS",
-                                    color = Color(0xFFE9F2FF),
+                                    color = logsBtnText,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                 )
@@ -313,21 +347,21 @@ fun BtechFloatingOverlay(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
-                            .background(Color(0xFF263447)),
+                            .background(dividerColor),
                     )
 
-                    // Body: Compact Status & Balance Card + Blue Trade Execution Card
+                    // Body: Compact Status & Balance Card + Trade Execution Card
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF080E19))
+                            .background(bodyBg)
                             .padding(10.dp),
                     ) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF101B2B),
-                            border = BorderStroke(1.dp, Color(0xFF25384E)),
+                            color = statusCardBg,
+                            border = BorderStroke(1.dp, statusCardBorder),
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Row(
@@ -337,7 +371,7 @@ fun BtechFloatingOverlay(
                                 ) {
                                     Text(
                                         text = snapshot.statusTitle,
-                                        color = Color(0xFFF1F5FB),
+                                        color = statusTitleColor,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
@@ -365,7 +399,7 @@ fun BtechFloatingOverlay(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Balance: ${snapshot.accountBalance}  |  Equity: ${snapshot.accountEquity}",
-                                            color = Color(0xFF41D39A),
+                                            color = balanceColor,
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
@@ -374,7 +408,7 @@ fun BtechFloatingOverlay(
                                         )
                                         Text(
                                             text = "P/L: ${snapshot.accountFloatingPl}  ${if (snapshot.balanceUpdatedAt.isNotBlank()) "· ${snapshot.balanceUpdatedAt}" else "· ${snapshot.balanceStatus}"}",
-                                            color = Color(0xFF9FB1C8),
+                                            color = mutedTextColor,
                                             fontSize = 9.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -387,7 +421,7 @@ fun BtechFloatingOverlay(
                                         Icon(
                                             imageVector = Icons.Filled.Refresh,
                                             contentDescription = "Refresh balance",
-                                            tint = Color(0xFF68EDA6),
+                                            tint = refreshTint,
                                             modifier = Modifier.size(16.dp),
                                         )
                                     }
@@ -408,14 +442,14 @@ fun BtechFloatingOverlay(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF080E19))
+                            .background(bodyBg)
                             .padding(horizontal = 10.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
                             text = "Powered by BTECH FINANCE",
-                            color = Color(0xFF8397AF),
+                            color = footerCopyColor,
                             fontSize = 8.sp,
                         )
                         Surface(

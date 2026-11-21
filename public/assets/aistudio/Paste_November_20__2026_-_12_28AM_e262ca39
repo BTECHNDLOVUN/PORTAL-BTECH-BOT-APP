@@ -1,0 +1,897 @@
+# BTECH FINANCE — REBUILD ROBO TRADER SYMBOL DISCOVERY FOR MT4 AND MT5
+
+## 1. Work on the existing project
+
+Work directly on the **latest BTECH FINANCE Android app project already open in Google AI Studio**. This is the project that was pushed from AI Studio.
+
+Do not ask me to clone a GitHub repository, download another project, or start a new application.
+
+First inspect the existing implementation, especially:
+
+- `WebTerminalEngine.kt`
+- `WebTerminalScripts.kt`
+- `BtechModels.kt`
+- `BtechViewModel.kt`
+- `MetaTraderScreens.kt`
+- `SymbolsScreens.kt`
+- `ProfileSettingsScreens.kt`
+- `BtechPreferencesRepository.kt`
+- `BtechDatabase.kt`
+- `BtechApp.kt`
+
+Understand how the current app authenticates with the broker, loads the MT4/MT5 Web Terminal, discovers instruments, opens order forms and submits trades.
+
+**This is an improvement to the existing BTECH application, not a redesign or replacement.**
+
+Preserve all existing screens, layouts, colours, navigation, floating overlay, authentication, account settings, broker settings, balance monitoring and other working features. Do not remove a feature simply because you are modifying the discovery engine.
+
+## 2. Main objective
+
+Rebuild and improve the BTECH RoboTrader-style symbol-discovery engine for **both MetaTrader 4 and MetaTrader 5**.
+
+The aim is to reproduce the useful discovery behaviour observed during the RoboTrader APK inspection, adapted to BTECH's existing Android WebView architecture.
+
+The two platforms must have their own discovery logic:
+
+- MT4 discovery must use the MT4-style Market Watch and Show All approach.
+- MT5 discovery must use the MT5-style Search Symbol field and search-result selection approach.
+
+Do not implement MT5 only and leave MT4 unfinished. Do not assume the two platforms have identical screens or controls.
+
+## 3. RoboTrader behaviour discovered during APK inspection
+
+These are the specific behaviours and code fragments observed during our inspection. Use them as functional references.
+
+### A. MT5 behaviour observed
+
+The MT5 discovery implementation was observed using:
+
+1. A symbol-search field with the placeholder **Search symbol**.
+2. Entering the requested instrument into that field.
+3. Finding the matching symbol in the search results.
+4. Clicking the matching result.
+5. Returning an explicit error when the requested instrument cannot be found.
+
+One of the observed error fragments was:
+
+```javascript
+return 'error:Symbol ' + targetSymbol + ' not found';
+```
+
+The MT5 inspection also revealed references to:
+
+- `Show Trade Form (F9)`
+- `New Order`
+- `Buy by Market`
+- `Sell by Market`
+- `.trade-input`
+- Volume, stop-loss and take-profit fields
+- Login fields for username/login, password and server
+- `Connect to account`
+
+Use these observations to improve the BTECH MT5 discovery and order-form detection.
+
+### B. MT4 behaviour observed
+
+The MT4 discovery behaviour was different:
+
+1. Find the Market Watch area.
+2. Open its context menu.
+3. Find the visible **Show All** menu option.
+4. Activate Show All.
+5. Read the symbols displayed in Market Watch.
+6. Find the requested instrument.
+7. Select the matching row.
+8. Double-click the matching row to open the order form.
+
+Do not click a menu item based on a hardcoded position or assume Show All is always the seventh option. Find the actual visible menu item by its text.
+
+The MT4 implementation must be able to work with the actual Web Terminal DOM, not just a hardcoded sample list.
+
+## 4. Shared RoboTrader-style discovery code
+
+Use the following reconstructed JavaScript as a starting point. Integrate it into the existing `WebTerminalScripts.kt` architecture and adapt it where necessary. Do not simply paste it without testing it against the actual terminal.
+
+This code is a BTECH implementation based on the observed RoboTrader behaviour, not a claim that the full original RoboTrader source was recovered.
+
+```javascript
+(function () {
+    "use strict";
+
+    const ALLOWED_SUFFIXES = [
+        ".m", ".s", ".c", ".ecn", ".pro",
+        ".raw", ".r", ".micro", ".std",
+        ".cent", ".i", "_i", "#"
+    ];
+
+    function normalise(value) {
+        return String(value || "")
+            .trim()
+            .toUpperCase();
+    }
+
+    function getRoots() {
+        const roots = [document];
+        const seen = new Set(roots);
+
+        for (let i = 0; i < roots.length; i++) {
+            const root = roots[i];
+
+            let elements = [];
+
+            try {
+                elements = root.querySelectorAll("*");
+            } catch (_) {
+                continue;
+            }
+
+            elements.forEach(function (element) {
+                if (element.shadowRoot &&
+                    !seen.has(element.shadowRoot)) {
+                    seen.add(element.shadowRoot);
+                    roots.push(element.shadowRoot);
+                }
+
+                if (element.tagName === "IFRAME") {
+                    try {
+                        const frameDocument =
+                            element.contentDocument;
+
+                        if (frameDocument &&
+                            !seen.has(frameDocument)) {
+                            seen.add(frameDocument);
+                            roots.push(frameDocument);
+                        }
+                    } catch (_) {
+                        // Cross-origin frames cannot be inspected.
+                    }
+                }
+            });
+        }
+
+        return roots;
+    }
+
+    function deepAll(selector) {
+        const result = [];
+        const seen = new Set();
+
+        getRoots().forEach(function (root) {
+            try {
+                root.querySelectorAll(selector)
+                    .forEach(function (element) {
+                        if (!seen.has(element)) {
+                            seen.add(element);
+                            result.push(element);
+                        }
+                    });
+            } catch (_) {
+                // Ignore invalid or unavailable DOM roots.
+            }
+        });
+
+        return result;
+    }
+
+    function isVisible(element) {
+        if (!element) return false;
+
+        try {
+            const style =
+                element.ownerDocument.defaultView
+                    .getComputedStyle(element);
+
+            return element.getClientRects().length > 0 &&
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                style.opacity !== "0";
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function getElementText(element) {
+        if (!element) return "";
+
+        return [
+            element.getAttribute("data-symbol"),
+            element.getAttribute("data-name"),
+            element.getAttribute("aria-label"),
+            element.getAttribute("title"),
+            element.textContent
+        ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+    }
+
+    function extractSymbolTokens(value) {
+        return normalise(value).match(
+            /[A-Z0-9]+(?:[._#-][A-Z0-9]+)*/g
+        ) || [];
+    }
+
+    function stripKnownSuffix(symbol) {
+        const value = normalise(symbol);
+
+        for (const suffix of ALLOWED_SUFFIXES) {
+            if (value.endsWith(suffix) &&
+                value.length > suffix.length + 2) {
+                return value.slice(0, -suffix.length);
+            }
+        }
+
+        // Handle common broker suffixes without
+        // stripping the final character of normal six-letter pairs.
+        if (value.length >= 7 && /[MC]$/.test(value)) {
+            return value.slice(0, -1);
+        }
+
+        return value;
+    }
+
+    function matchRank(actual, requested) {
+        const a = normalise(actual);
+        const r = normalise(requested);
+
+        if (!a || !r) return 0;
+
+        // Exact match always wins.
+        if (a === r) return 3;
+
+        // Only allow a suffix match when the base is identical.
+        if (stripKnownSuffix(a) === stripKnownSuffix(r)) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    function findSymbolElement(requestedSymbol) {
+        const selectors = [
+            "[data-symbol]",
+            "[role='option']",
+            "[role='row']",
+            "tr",
+            "li",
+            "button",
+            "[class*='symbol']",
+            "[class*='Symbol']"
+        ];
+
+        const elements = deepAll(selectors.join(","));
+
+        const matches = [];
+
+        elements.forEach(function (element) {
+            if (!isVisible(element)) return;
+
+            const tokens = extractSymbolTokens(
+                getElementText(element)
+            );
+
+            let bestRank = 0;
+            let actualSymbol = null;
+
+            tokens.forEach(function (token) {
+                const rank = matchRank(
+                    token,
+                    requestedSymbol
+                );
+
+                if (rank > bestRank) {
+                    bestRank = rank;
+                    actualSymbol = token;
+                }
+            });
+
+            if (bestRank > 0) {
+                matches.push({
+                    element: element,
+                    actualSymbol: actualSymbol,
+                    matchRank: bestRank,
+                    textLength: (element.textContent || "").length
+                });
+            }
+        });
+
+        // Prefer exact match, then the smallest matching element.
+        matches.sort(function (a, b) {
+            if (b.matchRank !== a.matchRank) {
+                return b.matchRank - a.matchRank;
+            }
+
+            return a.textLength - b.textLength;
+        });
+
+        return matches.length ? matches[0] : null;
+    }
+
+    function getClickableElement(element) {
+        if (!element) return null;
+
+        return element.closest(
+            "button, a, [role='button'], [role='option'], " +
+            "[role='row'], tr, li, [data-symbol], " +
+            "[class*='row'], [class*='item']"
+        ) || element;
+    }
+
+    function clickElement(element) {
+        if (!element || !isVisible(element)) {
+            return false;
+        }
+
+        try {
+            getClickableElement(element).click();
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function setNativeInputValue(input, value) {
+        if (!input) return false;
+
+        try {
+            const view = input.ownerDocument.defaultView;
+            const prototype = input.tagName === "TEXTAREA"
+                ? view.HTMLTextAreaElement.prototype
+                : view.HTMLInputElement.prototype;
+
+            const descriptor =
+                Object.getOwnPropertyDescriptor(
+                    prototype,
+                    "value"
+                );
+
+            if (descriptor && descriptor.set) {
+                descriptor.set.call(input, value);
+            } else {
+                input.value = value;
+            }
+
+            input.dispatchEvent(
+                new view.Event("input", { bubbles: true })
+            );
+
+            input.dispatchEvent(
+                new view.Event("change", { bubbles: true })
+            );
+
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function wait(milliseconds) {
+        return new Promise(function (resolve) {
+            setTimeout(resolve, milliseconds);
+        });
+    }
+
+    async function waitForSymbol(symbol, timeoutMs) {
+        const start = Date.now();
+
+        while (Date.now() - start < timeoutMs) {
+            const result = findSymbolElement(symbol);
+
+            if (result) return result;
+
+            await wait(250);
+        }
+
+        return null;
+    }
+
+    window.BtechRoboTraderDiscovery = {
+        findSymbolElement: findSymbolElement,
+        matchRank: matchRank,
+        normalise: normalise,
+        waitForSymbol: waitForSymbol
+    };
+})();
+```
+
+## 5. MT5 discovery implementation
+
+Add a separate MT5 discovery function using the following approach.
+
+```javascript
+async function discoverMT5Symbol(targetSymbol) {
+    const requested = String(targetSymbol || "").trim();
+
+    if (!requested) {
+        return {
+            success: false,
+            platform: "MT5",
+            error: "No symbol was supplied"
+        };
+    }
+
+    const searchSelectors = [
+        "input[placeholder*='Search symbol' i]",
+        "input[aria-label*='Search symbol' i]",
+        "input[placeholder*='search' i]",
+        "input[aria-label*='search' i]",
+        "input[type='search']"
+    ];
+
+    let searchInput = null;
+
+    for (const selector of searchSelectors) {
+        searchInput = deepAll(selector).find(isVisible);
+
+        if (searchInput) break;
+    }
+
+    if (!searchInput) {
+        return {
+            success: false,
+            platform: "MT5",
+            error: "MT5 symbol search field not found"
+        };
+    }
+
+    if (!setNativeInputValue(searchInput, requested)) {
+        return {
+            success: false,
+            platform: "MT5",
+            error: "Could not enter symbol in MT5 search field"
+        };
+    }
+
+    const result = await waitForSymbol(requested, 6000);
+
+    if (!result) {
+        return {
+            success: false,
+            platform: "MT5",
+            error: "error:Symbol " + requested + " not found"
+        };
+    }
+
+    const clicked = clickElement(result.element);
+
+    if (!clicked) {
+        return {
+            success: false,
+            platform: "MT5",
+            error: "MT5 symbol result could not be selected",
+            actualSymbol: result.actualSymbol
+        };
+    }
+
+    return {
+        success: true,
+        platform: "MT5",
+        requestedSymbol: requested,
+        actualSymbol: result.actualSymbol,
+        matchRank: result.matchRank,
+        resultClicked: true,
+        message: "Matching MT5 symbol selected; verify the active instrument before trading"
+    };
+}
+```
+
+Integrate this with the existing BTECH WebView script and existing deep-DOM utilities. If the existing `WebTerminalScripts.kt` already supplies helpers such as `collectRoots`, `queryDeepAll`, `isVisible`, `setNativeValue` and `realClick`, reuse them instead of maintaining unnecessary duplicate implementations.
+
+The MT5 function must not report a successful trade just because a search result was clicked. It must pass the selected instrument to the next stage, which verifies the active instrument and order ticket.
+
+## 6. MT4 discovery implementation
+
+Add an independent MT4 function following the observed Market Watch workflow.
+
+```javascript
+function findExactVisibleText(text, selectors) {
+    const wanted = String(text || "")
+        .trim()
+        .toLowerCase();
+
+    const elements = deepAll(selectors);
+
+    return elements.find(function (element) {
+        return isVisible(element) &&
+            (element.textContent || "")
+                .trim()
+                .toLowerCase() === wanted;
+    }) || null;
+}
+
+function openMT4ContextMenu(target) {
+    if (!target) return false;
+
+    try {
+        const view = target.ownerDocument.defaultView;
+
+        target.dispatchEvent(
+            new view.MouseEvent("contextmenu", {
+                bubbles: true,
+                cancelable: true,
+                view: view,
+                button: 2,
+                buttons: 2
+            })
+        );
+
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function doubleClickMT4Row(element) {
+    if (!element || !isVisible(element)) return false;
+
+    const target = getClickableElement(element);
+
+    try {
+        const view = target.ownerDocument.defaultView;
+
+        function mouseEvent(type, detail) {
+            target.dispatchEvent(
+                new view.MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: view,
+                    button: 0,
+                    buttons: type === "mouseup" ? 0 : 1,
+                    detail: detail
+                })
+            );
+        }
+
+        mouseEvent("mousedown", 1);
+        mouseEvent("mouseup", 1);
+        mouseEvent("click", 1);
+
+        mouseEvent("mousedown", 2);
+        mouseEvent("mouseup", 2);
+        mouseEvent("click", 2);
+
+        mouseEvent("dblclick", 2);
+
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+async function discoverMT4Symbol(targetSymbol) {
+    const requested = String(targetSymbol || "").trim();
+
+    if (!requested) {
+        return {
+            success: false,
+            platform: "MT4",
+            error: "No symbol was supplied"
+        };
+    }
+
+    // First check whether the symbol is already visible.
+    let result = findSymbolElement(requested);
+
+    // Locate the Market Watch section.
+    const marketWatchLabel = findExactVisibleText(
+        "Market Watch",
+        "div, span, button, label, [role='heading']"
+    );
+
+    let marketWatchPanel = marketWatchLabel;
+
+    // Move up the DOM to identify its panel/container.
+    for (let i = 0; i < 5 && marketWatchPanel; i++) {
+        if (marketWatchPanel.querySelectorAll) {
+            const panelText =
+                (marketWatchPanel.textContent || "")
+                    .toLowerCase();
+
+            if (panelText.includes("market watch")) {
+                break;
+            }
+        }
+
+        marketWatchPanel = marketWatchPanel.parentElement;
+    }
+
+    // If not found, open the Market Watch context menu
+    // and activate the actual visible Show All option.
+    if (!result) {
+        if (!marketWatchPanel) {
+            return {
+                success: false,
+                platform: "MT4",
+                error: "MT4 Market Watch panel not found"
+            };
+        }
+
+        openMT4ContextMenu(marketWatchPanel);
+        await wait(300);
+
+        const showAll = findExactVisibleText(
+            "Show All",
+            "[role='menuitem'], button, li, span, div"
+        );
+
+        if (!showAll) {
+            return {
+                success: false,
+                platform: "MT4",
+                error: "MT4 Show All menu option not found"
+            };
+        }
+
+        if (!clickElement(showAll)) {
+            return {
+                success: false,
+                platform: "MT4",
+                error: "Could not activate MT4 Show All"
+            };
+        }
+
+        await wait(800);
+
+        result = await waitForSymbol(requested, 6000);
+    }
+
+    if (!result) {
+        return {
+            success: false,
+            platform: "MT4",
+            error: "error:Symbol " + requested + " not found"
+        };
+    }
+
+    const opened = doubleClickMT4Row(result.element);
+
+    if (!opened) {
+        return {
+            success: false,
+            platform: "MT4",
+            error: "Could not open the MT4 instrument row",
+            actualSymbol: result.actualSymbol
+        };
+    }
+
+    return {
+        success: true,
+        platform: "MT4",
+        requestedSymbol: requested,
+        actualSymbol: result.actualSymbol,
+        matchRank: result.matchRank,
+        doubleClickSent: true,
+        message: "Matching MT4 Market Watch row selected; verify the order ticket before trading"
+    };
+}
+```
+
+Integrate the MT4 function into the shared discovery module. Do not let MT4 fall back to the MT5 search-field method simply because its own discovery failed.
+
+The context-menu and double-click operations must be tested against the real Web Terminal. If a browser or terminal rejects synthetic mouse events, implement a compatible interaction using the existing BTECH WebView helpers and report the limitation rather than pretending the interaction worked.
+
+## 7. Broker symbol matching and discovery
+
+Improve the existing BTECH symbol resolver.
+
+The current app already has symbol suffix logic, including examples such as:
+
+- `XAUUSD`
+- `XAUUSDm`
+- `XAUUSD.m`
+- `XAUUSD.s`
+- `XAUUSD.c`
+- `XAUUSD.ecn`
+- `XAUUSD.pro`
+- `XAUUSD.raw`
+- `XAUUSD_i`
+
+Retain useful existing logic, but make the resolution broker-aware.
+
+Resolution priority:
+
+1. Exact match.
+2. Case-insensitive exact match.
+3. Exact instrument discovered from the broker's terminal.
+4. Explicit broker-specific alias configured and verified.
+5. Recognised suffix variation with the same underlying symbol.
+6. Report not found.
+
+Do not assume `GOLD` is always the same instrument as `XAUUSD`. Only accept such an alias where the broker's actual instrument configuration verifies the relationship.
+
+Never choose a similar-looking instrument just to make a signal execute.
+
+Use a clear result model, adapted to the existing BTECH models:
+
+```kotlin
+data class SymbolDiscoveryRequest(
+    val requestedSymbol: String,
+    val broker: String,
+    val platform: PlatformType,
+    val server: String
+)
+
+data class SymbolDiscoveryResult(
+    val success: Boolean,
+    val requestedSymbol: String,
+    val actualBrokerSymbol: String?,
+    val broker: String,
+    val platform: PlatformType,
+    val server: String,
+    val matchType: String,
+    val message: String
+)
+```
+
+Use the existing `PlatformType` definition rather than creating a conflicting second platform enum.
+
+## 8. Make discovery dynamic
+
+Do not restrict the engine to the short hardcoded list of common currency pairs and metals.
+
+Discover instruments actually offered by the connected broker and account, including where available:
+
+- Forex pairs.
+- Gold and silver.
+- Stock-market indices.
+- Energies and commodities.
+- Cryptocurrencies.
+- Shares and CFDs.
+- Other instruments listed by the connected broker.
+
+Remove the current limitation that only samples a maximum of eight symbols when building discovery results.
+
+The app's predefined symbol list can remain as a fallback and user convenience. It must not be the only source of available instruments.
+
+Store discovered symbol mappings by broker, platform and server so that an MT4 mapping is not accidentally reused for MT5 or another broker.
+
+## 9. Verify the instrument before executing an order
+
+After discovery, do not immediately submit a trade.
+
+First verify:
+
+- The correct platform is active.
+- The selected instrument is the expected broker symbol.
+- The order form belongs to that instrument.
+- The Buy or Sell direction is correct.
+- The volume is correct.
+- Stop-loss and take-profit values are correct when supplied.
+- The order comment is correct when supported.
+
+The existing BTECH app has separate MT4 and MT5 order-control detection. Preserve that distinction and improve it.
+
+For MT4, account for the observed `Buy by Market` and `Sell by Market` controls.
+
+For MT5, account for the observed `Buy by Market`, `Sell by Market`, split Buy/Sell controls, `New Order` and `Show Trade Form (F9)` patterns.
+
+Do not click a historical position, a closed-order control, an alert button or a different instrument's order button.
+
+Never automatically click Buy or Sell a second time just because the first order confirmation was delayed.
+
+## 10. Correct the current SIMULATE TRADE safety problem
+
+The existing BTECH screen labels an action as a simulation, but the current implementation can interact with real broker Buy and Sell buttons.
+
+Correct this.
+
+A real dry run must:
+
+- Discover the instrument.
+- Resolve the broker symbol.
+- Open or inspect the order form if necessary.
+- Validate direction, lot size, stop-loss and take-profit.
+- Display the intended trade details.
+- Stop before clicking the final Buy or Sell control.
+
+Keep actual live order execution separate and require the app's existing explicit live-trading authorisation.
+
+Do not send any live order during automated tests or dry runs.
+
+## 11. Stop, Skip and cancellation
+
+Inspect the existing JavaScript trade-run ID and timer cancellation mechanisms in `WebTerminalScripts.kt`.
+
+Fix the Kotlin-to-JavaScript cancellation connection.
+
+When Stop is pressed:
+
+- Cancel pending discovery and execution timers.
+- Prevent queued trades from being submitted.
+- Prevent the next order in a sequence from starting.
+- Update the overlay and app status.
+- Do not claim that an order already submitted to the broker has been reversed.
+
+When Skip Trades is activated, skip pending trades in the queue without allowing another queued order to slip through.
+
+## 12. Preserve the existing BTECH architecture
+
+The existing app uses a persistent Android WebView in `WebTerminalEngine.kt` and JavaScript helpers in `WebTerminalScripts.kt`.
+
+Build on that architecture.
+
+Reuse the existing login process, saved account information, encrypted credentials, WebView, JavaScript bridge, overlay and view model.
+
+Do not replace the authentication system or create a second competing WebView.
+
+The current BTECH code already has helpers for DOM traversal, Shadow DOM and same-origin iframe inspection. Reuse and improve those helpers.
+
+Do not claim that the app can inspect closed Shadow DOM or cross-origin iframe contents when browser security prevents it.
+
+## 13. Broker configuration
+
+Inspect the current broker catalogue and keep its existing supported brokers.
+
+The current catalogue does not include XM. Add XM only after verifying its actual Web Terminal URL, platform support and server configuration.
+
+Do not invent server names or terminal URLs. Do not assume that every broker has identical MT4 and MT5 login requirements.
+
+Keep broker, platform, login, server and terminal URL correctly associated with the saved account.
+
+## 14. Trade Channel compatibility
+
+Do not fabricate a Trade Channel connection or display Connected when no real listener or API has been implemented.
+
+The existing app must remain compatible with the intended BTECH architecture:
+
+**BTECH Portal → BTECH Trade Channel → BTECH Android App → Broker Web Terminal**
+
+Prepare the signal-handling layer to accept a future authenticated signal in a structure such as:
+
+```json
+{
+  "signal_id": "BTECH-123456",
+  "platform": "MT5",
+  "symbol": "XAUUSD",
+  "direction": "BUY",
+  "lot": "0.01",
+  "stop_loss": "",
+  "take_profit": "",
+  "comment": "BTECH-EA",
+  "trade_count": 1
+}
+```
+
+The same discovery and validation engine must support MT4 and MT5 signals.
+
+Do not invent a production API URL, authentication token, WebSocket address or webhook endpoint.
+
+## 15. Testing requirements
+
+Test the MT4 and MT5 discovery paths separately.
+
+At minimum, test:
+
+- Exact symbol match.
+- Lowercase and uppercase requests.
+- A broker suffix such as `.m`.
+- A broker suffix such as `.ecn`.
+- A symbol that is available but not currently visible.
+- An instrument that requires Show All in MT4.
+- An instrument found through Search Symbol in MT5.
+- A genuinely missing instrument.
+- A similar-looking but different symbol.
+- A broker with an unavailable symbol.
+- A terminal that has lost its authenticated session.
+- Stop and Skip while a discovery or order sequence is running.
+- Dry run without pressing Buy or Sell.
+
+Do not report a test as passed merely because JavaScript ran without an exception. Verify the actual visible terminal result and the returned discovery status.
+
+## 16. Final deliverables
+
+When finished, report:
+
+1. Which files you modified.
+2. What you changed in MT4 discovery.
+3. What you changed in MT5 discovery.
+4. How the RoboTrader-style Show All and Search Symbol methods were implemented.
+5. How suffix and broker-specific symbol resolution works.
+6. How the selected instrument is verified before an order.
+7. How Stop and Skip now cancel pending actions.
+8. How dry-run and live execution are separated.
+9. Which tests actually passed on MT4 and MT5.
+10. Whether the Android project builds successfully.
+11. Anything that remains incomplete or requires a real broker account to verify.
+
+**Final instruction:** Do not leave one platform unfinished. Do not remove existing working features or alter the BTECH user interface unnecessarily. Concentrate on making the MT4 and MT5 RoboTrader-style symbol-discovery and instrument-selection engines reliable, while keeping live trading protected against accidental orders.

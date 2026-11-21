@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -142,8 +143,9 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
                 BackgroundWebViewHost(
                     webEngine = viewModel.webEngine,
                     modifier = Modifier
-                        .requiredSize(1024.dp, 800.dp)
-                        .alpha(0f),
+                        .wrapContentSize(unbounded = true, align = Alignment.TopStart)
+                        .requiredSize(1280.dp, 800.dp)
+                        .alpha(0.01f),
                 )
             }
 
@@ -219,6 +221,7 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
                                         navController.navigate(BtechRoutes.SYMBOL_CONFIG)
                                     },
                                     onBack = { navController.popBackStack() },
+                                    onRefreshDiscoveredSymbols = { viewModel.refreshBrokerSymbols() },
                                 )
                             }
 

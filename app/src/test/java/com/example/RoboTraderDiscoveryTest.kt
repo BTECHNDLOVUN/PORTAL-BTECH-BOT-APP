@@ -1,0 +1,2839 @@
+package com.example
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.BtechPreferencesRepository
+import com.example.model.BrokerCatalog
+import com.example.model.BrokerSymbolResolver
+import com.example.model.PlatformType
+import com.example.model.SimulatedSignalRequest
+import com.example.model.SymbolDiscoveryRequest
+import com.example.model.TradeChannelSignal
+import com.example.model.TradeDirection
+import com.example.service.ExecutionStepStatus
+import com.example.service.OverlayActionEvent
+import com.example.service.OverlayStateBus
+import com.example.webterminal.WebTerminalScripts
+import com.example.webterminal.WebTerminalStatus
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.io.File
+import java.util.concurrent.TimeUnit
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
+class RoboTraderDiscoveryTest {
+
+    // -------------------------------------------------------------------------
+    // PART A: Kotlin Resolver, Isolation, Signal Parser & Cancellation Tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `BrokerSymbolResolver enforces strict exact broker symbols and rejects suffix mismatches`() {
+        val offered = listOf("EURJPY", "EURUSD.ecn", "XAUUSD.m", "XAGUSD", "US500", "GBPJPY", "BTCUSD", "ETHUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF")
+
+        // 1. Suffix mismatch MUST NOT match: requesting XAUUSD when broker only offers XAUUSD.m -> Symbol not found
+        val xauNoSuffixMiss = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "XAUUSD", broker = "JustMarkets", platform = PlatformType.MT4, server = "JustMarkets-Demo"),
+            discoveredSymbols = offered,
+            cachedMappings = mapOf("XAUUSD" to "XAUUSD.m"),
+        )
+        assertFalse(xauNoSuffixMiss.success)
+        assertNull(xauNoSuffixMiss.actualBrokerSymbol)
+        assertEquals("NOT_FOUND", xauNoSuffixMiss.matchType)
+        assertTrue(xauNoSuffixMiss.message.contains("not found"))
+
+        // 2. Suffix mismatch MUST NOT match: requesting EURUSD when broker only offers EURUSD.ecn -> Symbol not found
+        val eurNoSuffixMiss = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "EURUSD", broker = "IC Markets", platform = PlatformType.MT5, server = "ICMarketsSC-Demo"),
+            discoveredSymbols = offered,
+        )
+        assertFalse(eurNoSuffixMiss.success)
+        assertNull(eurNoSuffixMiss.actualBrokerSymbol)
+        assertEquals("NOT_FOUND", eurNoSuffixMiss.matchType)
+
+        // 2b. Exact & case-insensitive broker suffix DOES match
+        val exactDotM = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "XAUUSD.m", broker = "JustMarkets", platform = PlatformType.MT4, server = "JustMarkets-Demo"),
+            discoveredSymbols = offered,
+        )
+        assertTrue(exactDotM.success)
+        assertEquals("XAUUSD.m", exactDotM.actualBrokerSymbol)
+        assertEquals("EXACT", exactDotM.matchType)
+
+        val caseInsensitiveDotEcn = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "eurusd.ecn", broker = "IC Markets", platform = PlatformType.MT5, server = "ICMarketsSC-Demo"),
+            discoveredSymbols = offered,
+        )
+        assertTrue(caseInsensitiveDotEcn.success)
+        assertEquals("EURUSD.ecn", caseInsensitiveDotEcn.actualBrokerSymbol)
+        assertEquals("CASE_INSENSITIVE", caseInsensitiveDotEcn.matchType)
+
+        // 3. Similar-looking different instrument MUST NOT match (US30 vs US500, GOLD vs XAUUSD without verified alias)
+        val us30Miss = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "US30", broker = "Exness", platform = PlatformType.MT5, server = "Exness-MT5Trial9"),
+            discoveredSymbols = offered,
+        )
+        assertFalse(us30Miss.success)
+        assertNull(us30Miss.actualBrokerSymbol)
+
+        val goldNoAlias = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "GOLD", broker = "Exness", platform = PlatformType.MT5, server = "Exness-MT5Trial9"),
+            discoveredSymbols = listOf("XAUUSD", "XAGUSD"),
+        )
+        assertFalse(goldNoAlias.success)
+
+        // 4. Explicit verified broker alias resolves only when verified in discovered symbols
+        val goldWithVerifiedAlias = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "GOLD", broker = "Exness", platform = PlatformType.MT5, server = "Exness-MT5Trial9"),
+            discoveredSymbols = listOf("XAUUSD", "XAGUSD"),
+            verifiedAliases = mapOf("GOLD" to "XAUUSD"),
+        )
+        assertTrue(goldWithVerifiedAlias.success)
+        assertEquals("XAUUSD", goldWithVerifiedAlias.actualBrokerSymbol)
+        assertEquals("VERIFIED_ALIAS", goldWithVerifiedAlias.matchType)
+
+        // 5. Missing instrument
+        val missing = BrokerSymbolResolver.resolve(
+            SymbolDiscoveryRequest(requestedSymbol = "DOGEUSD", broker = "Exness", platform = PlatformType.MT5, server = "Exness-MT5Trial9"),
+            discoveredSymbols = offered,
+        )
+        assertFalse(missing.success)
+        assertTrue(missing.message.contains("not found"))
+    }
+
+    @Test
+    fun `BtechPreferencesRepository isolates discovered catalogs by broker platform and server`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = BtechPreferencesRepository(context)
+
+        val mt4Symbols = listOf(
+            "EURUSD", "GBPUSD", "USDJPY", "XAUUSD.m", "XAGUSD.m",
+            "US30", "US500", "NAS100", "BTCUSD", "ETHUSD", "DE40", "AUDUSD",
+        )
+        val mt5Symbols = listOf(
+            "EURUSD.ecn", "GBPUSD.ecn", "XAUUSD.ecn", "UK100", "GER40",
+        )
+
+        repo.recordDiscoveredSymbols(
+            broker = "Exness",
+            platform = PlatformType.MT4,
+            server = "Exness-MT4Trial",
+            symbols = mt4Symbols,
+            requestedSymbol = "XAUUSD",
+            actualBrokerSymbol = "XAUUSD.m",
+        )
+        repo.recordDiscoveredSymbols(
+            broker = "Exness",
+            platform = PlatformType.MT5,
+            server = "Exness-MT5Trial9",
+            symbols = mt5Symbols,
+            requestedSymbol = "EURUSD",
+            actualBrokerSymbol = "EURUSD.ecn",
+        )
+
+        val mt4Catalog = repo.getDiscoveredCatalog("Exness", PlatformType.MT4, "Exness-MT4Trial")
+        val mt5Catalog = repo.getDiscoveredCatalog("Exness", PlatformType.MT5, "Exness-MT5Trial9")
+
+        assertNotNull(mt4Catalog)
+        assertNotNull(mt5Catalog)
+        // Proves all 12+ symbols are stored without the old 8-symbol truncation
+        assertEquals(12, mt4Catalog!!.symbols.size)
+        assertEquals("XAUUSD.m", mt4Catalog.resolvedMappings["XAUUSD"])
+        assertEquals(5, mt5Catalog!!.symbols.size)
+        assertEquals("EURUSD.ecn", mt5Catalog.resolvedMappings["EURUSD"])
+        // MT4 must never see MT5-specific mappings
+        assertNull(mt4Catalog.resolvedMappings["EURUSD"])
+        assertNull(mt5Catalog.resolvedMappings["XAUUSD"])
+    }
+
+    @Test
+    fun `TradeChannelSignal parses valid JSON and rejects malformed or invalid lots`() {
+        val validJson = """
+            {
+              "signal_id": "SIG-9041",
+              "platform": "MT4",
+              "symbol": "XAUUSD.m",
+              "direction": "SELL",
+              "lot": "0.05",
+              "stop_loss": "2660.50",
+              "take_profit": "2620.00",
+              "comment": "BTECH-PORTAL",
+              "trade_count": 3
+            }
+        """.trimIndent()
+        val parsed = TradeChannelSignal.fromJson(validJson)
+        assertNotNull(parsed)
+        assertEquals(PlatformType.MT4, parsed!!.platform)
+        assertEquals("XAUUSD.m", parsed.symbol)
+        assertEquals(TradeDirection.SELL, parsed.direction)
+        assertEquals("0.05", parsed.lot)
+        assertEquals(3, parsed.tradeCount)
+
+        val simReq = parsed.toSignalRequest()
+        assertEquals("SIG-9041", simReq.signalId)
+        assertEquals("XAUUSD.m", simReq.symbol)
+        assertEquals(PlatformType.MT4, simReq.platform)
+
+        assertNull(TradeChannelSignal.fromJson("""{"symbol":"XAUUSD","direction":"HOLD","lot":"0.01"}"""))
+        assertNull(TradeChannelSignal.fromJson("""{"symbol":"XAUUSD","direction":"BUY","lot":"0"}"""))
+    }
+
+    @Test
+    fun `OverlayStateBus emits SkipTradingChanged and cancels active execution on Stop or Skip`() = runBlocking {
+        OverlayStateBus.clearLogs()
+        OverlayStateBus.beginNewSignalExecution("Signal: XAUUSD BUY", "Preparing...")
+        assertTrue(OverlayStateBus.snapshot.value.isExecuting)
+
+        var skipEventSeen = false
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            val ev = withTimeout(5_000L) { OverlayStateBus.actions.first() }
+            skipEventSeen = ev is OverlayActionEvent.SkipTradingChanged && ev.skipTrading
+        }
+        OverlayStateBus.toggleSkipTrading()
+        job.join()
+        assertTrue(skipEventSeen)
+
+        OverlayStateBus.cancelActiveExecution("Skip Trades pressed during symbol discovery")
+        val snap = OverlayStateBus.snapshot.value
+        assertFalse(snap.isExecuting)
+        assertTrue(snap.executionFailed)
+        assertEquals("PAUSED", snap.statusPill)
+        assertEquals("Skipped / Cancelled", snap.executionHeaderStatus)
+        assertTrue(snap.executionSteps.any { it.status == ExecutionStepStatus.ERROR })
+
+        // Reset skipTrading & state
+        if (OverlayStateBus.snapshot.value.skipTrading) OverlayStateBus.toggleSkipTrading()
+        OverlayStateBus.clearLogs()
+    }
+
+    // -------------------------------------------------------------------------
+    // PART B: Real Node.js DOM Execution Suite for MT4 & MT5 (All 13 Scenarios)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `MT4 RoboTrader real JS DOM suite verifies all discovery, Show All, missing, mismatch, auth, cancel and execution paths`() {
+        val results = runNodeHarness(
+            buildMt4SuiteJs(
+                discoveryScriptFn = { sym, aliasesJson ->
+                    WebTerminalScripts.buildSymbolDiscoveryScript(
+                        platform = "MT4",
+                        requestedSymbol = sym,
+                        broker = "JustMarkets",
+                        server = "JustMarkets-Demo",
+                        verifiedAliasesJson = aliasesJson,
+                        pollDelayMs = 15,
+                    )
+                },
+                tradeScriptFn = { sym, dir, count ->
+                    WebTerminalScripts.buildTradeScript(
+                        symbol = sym,
+                        direction = dir,
+                        lot = "0.02",
+                        stopLoss = "2650.00",
+                        takeProfit = "2680.00",
+                        comment = "BTECH-MT4",
+                        tradeCount = count,
+                        platform = "MT4",
+                        broker = "JustMarkets",
+                        server = "JustMarkets-Demo",
+                    )
+                },
+                cancelScript = WebTerminalScripts.buildCancelTradeScript(),
+            )
+        )
+
+        assertTrue("MT4 suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("exactMatchOk"))
+        assertTrue(results.getBoolean("caseInsensitiveOk"))
+        assertTrue(results.getBoolean("showAllByTextNotIndex7Ok"))
+        assertTrue(results.getBoolean("mt4DidNotTouchMt5Search"))
+        assertTrue(results.getBoolean("suffixDotMOk"))
+        assertTrue(results.getBoolean("suffixDotEcnOk"))
+        assertTrue(results.getBoolean("unmatchedSuffixRejectedOk"))
+        assertTrue(results.getBoolean("catalogExceeds8SymbolsOk"))
+        assertTrue(results.getBoolean("missingSymbolFailedCleanly"))
+        assertTrue(results.getBoolean("similarDifferentRejected"))
+        assertTrue(results.getBoolean("authLostTriggersBridge"))
+        assertTrue(results.getBoolean("cancelAbortsMidDiscovery"))
+        assertTrue(results.getBoolean("mt4MockOrderExecutedOnceAndConfirmed"))
+        assertEquals(1, results.getInt("executedBuyClicks"))
+        assertEquals(0, results.getInt("executedSellClicks"))
+    }
+
+    @Test
+    fun `MT5 RoboTrader real JS DOM suite verifies Search Symbol, order form verification, missing, mismatch, auth, cancel and execution paths`() {
+        val results = runNodeHarness(
+            buildMt5SuiteJs(
+                discoveryScriptFn = { sym, aliasesJson ->
+                    WebTerminalScripts.buildSymbolDiscoveryScript(
+                        platform = "MT5",
+                        requestedSymbol = sym,
+                        broker = "Exness",
+                        server = "Exness-MT5Trial9",
+                        verifiedAliasesJson = aliasesJson,
+                        pollDelayMs = 15,
+                    )
+                },
+                tradeScriptFn = { sym, dir, count, aliasesJson ->
+                    WebTerminalScripts.buildTradeScript(
+                        symbol = sym,
+                        direction = dir,
+                        lot = "0.03",
+                        stopLoss = "1.0800",
+                        takeProfit = "1.0950",
+                        comment = "BTECH-MT5",
+                        tradeCount = count,
+                        platform = "MT5",
+                        broker = "Exness",
+                        server = "Exness-MT5Trial9",
+                        verifiedAliasesJson = aliasesJson,
+                    )
+                },
+                cancelScript = WebTerminalScripts.buildCancelTradeScript(),
+            )
+        )
+
+        assertTrue("MT5 suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("exactSearchAndClickOk"))
+        assertTrue(results.getBoolean("caseInsensitiveSearchOk"))
+        assertTrue(results.getBoolean("hiddenUntilSearchedOk"))
+        assertTrue(results.getBoolean("suffixDotMOk"))
+        assertTrue(results.getBoolean("suffixDotEcnOk"))
+        assertTrue(results.getBoolean("unmatchedSuffixRejectedOk"))
+        assertTrue(results.getBoolean("searchClickAloneDidNotCompleteTrade"))
+        assertTrue(results.getBoolean("missingSymbolFailedCleanly"))
+        assertTrue(results.getBoolean("similarDifferentRejected"))
+        assertTrue(results.getBoolean("goldNotBlindlyXauUsd"))
+        assertTrue(results.getBoolean("goldWithVerifiedAliasOk"))
+        assertTrue(results.getBoolean("orderFormMismatchRejected"))
+        assertTrue(results.getBoolean("authLostTriggersBridge"))
+        assertTrue(results.getBoolean("cancelStopsTrade2BeforeSubmit"))
+        assertTrue(results.getBoolean("twoSecondDelayBetweenTradesOk"))
+        assertTrue(results.getBoolean("mt5TradeInputVerifiedAndExecutedOnce"))
+        assertEquals(1, results.getInt("executedBuyClicks"))
+    }
+
+    @Test
+    fun `BrokerCatalog buildLaunchUrl follows RoboTrader MT4 and MT5 routes while preserving custom broker URLs`() {
+        assertEquals(
+            "https://metatraderweb.app/trade?version=4&login=10045&server=MetaQuotes-Demo",
+            BrokerCatalog.buildLaunchUrl("https://metatraderweb.app/trade", PlatformType.MT4, "10045", "MetaQuotes-Demo"),
+        )
+        assertEquals(
+            "https://trade.metatrader5.com/terminal?login=20099&server=MetaQuotes-Demo",
+            BrokerCatalog.buildLaunchUrl("https://trade.metatrader5.com", PlatformType.MT5, "20099", "MetaQuotes-Demo"),
+        )
+        assertEquals(
+            "https://live.justmarkets.com",
+            BrokerCatalog.buildLaunchUrl(BrokerCatalog.JUSTMARKETS_MT5_URL, PlatformType.MT5, "2101016455", "JustMarkets-Demo2"),
+        )
+        assertEquals(
+            "https://webtrader.justmarkets.com",
+            BrokerCatalog.buildLaunchUrl("https://webtrader.justmarkets.com", PlatformType.MT4, "9911", "JustMarkets-Demo"),
+        )
+
+        // JustMarkets live.justmarkets.com is an MT5 URL — must flag mismatch on MT4 and pass on MT5
+        assertTrue(BrokerCatalog.isUrlPlatformMismatch("https://live.justmarkets.com/terminal", PlatformType.MT4))
+        assertFalse(BrokerCatalog.isUrlPlatformMismatch("https://live.justmarkets.com/terminal", PlatformType.MT5))
+        // metatraderweb.app is MT4 — must flag mismatch on MT5 and NOT warn on MT4 for JustMarkets
+        assertTrue(BrokerCatalog.isUrlPlatformMismatch("https://metatraderweb.app/trade", PlatformType.MT5))
+        assertFalse(BrokerCatalog.isUrlPlatformMismatch("https://metatraderweb.app/trade", PlatformType.MT4))
+        assertFalse(BrokerCatalog.requiresBrokerOwnUrlWarning("JustMarkets", "https://metatraderweb.app/trade", PlatformType.MT4))
+        assertTrue(WebTerminalStatus().isDesktopMode)
+    }
+
+    @Test
+    fun `Ported RoboTrader MT4 and MT5 demo DOM suite verifies auth, F9 form, fields, min-volume, rejection stop, bare OK rejection, stale dialog cleanup and UNKNOWN timeout`() {
+        val mt5AuthFailJs = JSONObject.quote(
+            WebTerminalScripts.buildAuthScript("12345", "wrongpass", "MetaQuotes-Demo", "MT5")
+        )
+        val mt5AuthSuccessJs = JSONObject.quote(
+            WebTerminalScripts.buildAuthScript("12345", "goodpass", "MetaQuotes-Demo", "MT5")
+        )
+        val mt5RejectMultiJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "BUY",
+                lot = "0.02",
+                stopLoss = "1.0800",
+                takeProfit = "1.0950",
+                comment = "RT-MT5",
+                tradeCount = 3,
+                platform = "MT5",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+            )
+        )
+        val mt5DisabledInvalidJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "BUY",
+                lot = "0.02",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+            )
+        )
+        val mt5BareOkThenUnknownJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "BUY",
+                lot = "0.02",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 2,
+                platform = "MT5",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+                confirmTimeoutPolls = 3,
+            )
+        )
+        val mt5NoSymbolsJs = JSONObject.quote(
+            WebTerminalScripts.buildSymbolDiscoveryScript(
+                platform = "MT5",
+                requestedSymbol = "DOGEUSD",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+                pollDelayMs = 15,
+            )
+        )
+        val mt4PortedJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "SELL",
+                lot = "0.03",
+                stopLoss = "1.1200",
+                takeProfit = "1.1000",
+                comment = "RT-MT4",
+                tradeCount = 2,
+                platform = "MT4",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+                confirmTimeoutPolls = 3,
+            )
+        )
+        val mt4BareOkAndRejectJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "BUY",
+                lot = "0.03",
+                stopLoss = "1.1000",
+                takeProfit = "1.1200",
+                comment = "RT-MT4",
+                tradeCount = 3,
+                platform = "MT4",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+            )
+        )
+        val removeSessionJs = JSONObject.quote(WebTerminalScripts.buildMt5RemoveSessionScript())
+
+        val script = """
+        (async function() {
+          // 1. MT5 Auth script: invalid credentials via .error and valid login via autocomplete='username' + Connect to account
+          function testMt5Auth(shouldSucceed) {
+            return new Promise(function(resolve) {
+              const doc = createDomDocument();
+              const loginIn = doc.createElement('input');
+              loginIn.setAttribute('autocomplete', 'username');
+              loginIn.name = 'login';
+              const pwdIn = doc.createElement('input');
+              pwdIn.type = 'password';
+              pwdIn.name = 'password';
+              const btn = doc.createElement('button');
+              btn.textContent = 'Connect to account';
+              btn.addEventListener('click', function() {
+                setTimeout(function() {
+                  if (shouldSucceed) {
+                    doc.body.removeChild(loginIn);
+                    doc.body.removeChild(pwdIn);
+                    doc.body.removeChild(btn);
+                    const ws = doc.createElement('div');
+                    ws.textContent = 'Balance: 10,000.00 USD Equity: 10,000.00 USD Positions Quotes Chart Trade';
+                    doc.body.appendChild(ws);
+                  } else {
+                    const err = doc.createElement('div');
+                    err.className = 'error';
+                    err.textContent = 'Invalid account or password';
+                    doc.body.appendChild(err);
+                  }
+                }, 40);
+              });
+              doc.body.appendChild(loginIn);
+              doc.body.appendChild(pwdIn);
+              doc.body.appendChild(btn);
+              installDoc(doc);
+              window.BtechBridge = {
+                onAuthResult: function(ok, msg) { resolve({ ok: ok, msg: msg, loginVal: loginIn.value }); },
+                onTradeLog: function() {}
+              };
+              eval(shouldSucceed ? $mt5AuthSuccessJs : $mt5AuthFailJs);
+            });
+          }
+
+          const authFailRes = await testMt5Auth(false);
+          const mt5AuthInvalidErrorOk = !authFailRes.ok && authFailRes.msg.indexOf('Invalid account or password') >= 0;
+          const authOkRes = await testMt5Auth(true);
+          const mt5AuthSuccessOk = !!authOkRes.ok && authOkRes.loginVal === '12345';
+
+          // 2. MT5 'No symbols found' fails cleanly without hanging
+          let doc = createDomDocument();
+          const ws0 = doc.createElement('div');
+          ws0.textContent = 'Balance: 10,000.00 USD Equity: 10,000.00 USD';
+          doc.body.appendChild(ws0);
+          const sIn = doc.createElement('input');
+          sIn.setAttribute('placeholder', 'Search symbol');
+          const noSymMsg = doc.createElement('div');
+          noSymMsg.textContent = 'No symbols found';
+          doc.body.appendChild(sIn);
+          doc.body.appendChild(noSymMsg);
+          installDoc(doc);
+          eval($mt5NoSymbolsJs);
+          const noSymRes = await window.__btechLastDiscoveryPromise;
+          const mt5NoSymbolsFoundOk = !noSymRes.success && String(noSymRes.error).indexOf('error:Symbol DOGEUSD not found') >= 0;
+
+          // 3. Helper to build full RoboTrader-shaped MT5 DOM (.trade-input, .comment, F9 title button, positions table, stale dialog)
+          function buildRichMt5Dom(opts) {
+            opts = opts || {};
+            const d = createDomDocument();
+            const state = {
+              f9Opened: false,
+              staleResultDismissed: false,
+              staleFormClosed: false,
+              openPositionCloseClicked: false,
+              eventsSeen: [],
+              buyClicks: 0,
+              results: [],
+              phases: [],
+              logs: []
+            };
+
+            const ws = d.createElement('div');
+            ws.textContent = 'Balance: 10,000.00 USD Equity: 10,000.00 USD Positions';
+            d.body.appendChild(ws);
+
+            // Existing open position row with 'Close' & 'Close Position' — MUST NEVER be touched by stale dialog cleanup!
+            const posTable = d.createElement('table');
+            const posRow = d.createElement('tr');
+            posRow.textContent = '#770001 buy 0.01 XAUUSD at 2650.00';
+            const closePosBtn = d.createElement('button');
+            closePosBtn.textContent = 'Close Position';
+            closePosBtn.addEventListener('click', function() { state.openPositionCloseClicked = true; });
+            posRow.appendChild(closePosBtn);
+            posTable.appendChild(posRow);
+            d.body.appendChild(posTable);
+
+            if (opts.withStaleDialogs) {
+              const staleModal = d.createElement('div');
+              staleModal.setAttribute('role', 'dialog');
+              staleModal.textContent = 'Previous trade receipt #660001 done';
+              const staleOk = d.createElement('button');
+              staleOk.textContent = 'OK';
+              staleOk.addEventListener('click', function() {
+                state.staleResultDismissed = true;
+                if (staleModal.parentElement) staleModal.parentElement.removeChild(staleModal);
+              });
+              staleModal.appendChild(staleOk);
+              d.body.appendChild(staleModal);
+
+              const staleForm = d.createElement('div');
+              staleForm.className = 'trade-form';
+              staleForm.textContent = 'Market Execution EURUSD';
+              const staleVol = d.createElement('input');
+              staleVol.name = 'volume';
+              staleForm.appendChild(staleVol);
+              const staleBuy = d.createElement('button');
+              staleBuy.textContent = 'Buy by Market';
+              staleForm.appendChild(staleBuy);
+              const staleClose = d.createElement('button');
+              staleClose.textContent = 'Close';
+              staleClose.addEventListener('click', function() {
+                state.staleFormClosed = true;
+                if (staleForm.parentElement) staleForm.parentElement.removeChild(staleForm);
+              });
+              staleForm.appendChild(staleClose);
+              d.body.appendChild(staleForm);
+            }
+
+            const searchBox = d.createElement('input');
+            searchBox.setAttribute('placeholder', 'Search symbol');
+            const rowBtn = d.createElement('button');
+            rowBtn.textContent = 'EURUSD';
+            rowBtn.addEventListener('click', function() {
+              // F9 trigger button becomes available after selecting symbol
+              if (!opts.skipF9Button) {
+                const f9Btn = d.createElement('button');
+                const iconSpan = d.createElement('span');
+                iconSpan.setAttribute('title', 'Show Trade Form (F9)');
+                f9Btn.appendChild(iconSpan);
+                f9Btn.addEventListener('click', function() {
+                  state.f9Opened = true;
+                  mountTradeForm();
+                });
+                d.body.appendChild(f9Btn);
+              } else {
+                mountTradeForm();
+              }
+            });
+            d.body.appendChild(searchBox);
+            d.body.appendChild(rowBtn);
+
+            let tradeForm = null;
+            let volInputRef = null;
+            function mountTradeForm() {
+              if (tradeForm && tradeForm.parentElement) tradeForm.parentElement.removeChild(tradeForm);
+              tradeForm = d.createElement('div');
+              tradeForm.className = 'trade-form';
+
+              function makeTradeInput(labelName, withDecBtnDisabled, markInvalid) {
+                const wrap = d.createElement('div');
+                wrap.className = 'trade-input';
+                const lbl = d.createElement('span');
+                lbl.className = 'label';
+                lbl.textContent = labelName;
+                wrap.appendChild(lbl);
+                if (labelName === 'Volume') {
+                  const dec = d.createElement('button');
+                  dec.textContent = '-';
+                  dec.disabled = !!withDecBtnDisabled;
+                  wrap.appendChild(dec);
+                }
+                const inp = d.createElement('input');
+                if (markInvalid) inp.setAttribute('aria-invalid', 'true');
+                ['beforeinput', 'input', 'change', 'keydown', 'keyup', 'blur'].forEach(function(evName) {
+                  inp.addEventListener(evName, function() {
+                    if (labelName === 'Volume') state.eventsSeen.push(evName);
+                  });
+                });
+                wrap.appendChild(inp);
+                tradeForm.appendChild(wrap);
+                return inp;
+              }
+
+              volInputRef = makeTradeInput('Volume', opts.decrementDisabled, opts.markVolumeInvalid);
+              makeTradeInput('Stop Loss', false, false);
+              makeTradeInput('Take Profit', false, false);
+
+              const cWrap = d.createElement('div');
+              cWrap.className = 'comment';
+              const cLbl = d.createElement('div');
+              cLbl.className = 'label';
+              cLbl.textContent = 'Comment';
+              const cInp = d.createElement('input');
+              cWrap.appendChild(cLbl);
+              cWrap.appendChild(cInp);
+              tradeForm.appendChild(cWrap);
+
+              const sellBtn = d.createElement('button');
+              sellBtn.textContent = 'Sell by Market';
+              const buyBtn = d.createElement('button');
+              buyBtn.textContent = 'Buy by Market';
+              if (opts.disableBuyButton) buyBtn.disabled = true;
+
+              buyBtn.addEventListener('click', function() {
+                state.buyClicks++;
+                if (opts.mode === 'reject') {
+                  const errDialog = d.createElement('div');
+                  errDialog.setAttribute('role', 'dialog');
+                  const statusNode = d.createElement('div');
+                  statusNode.className = 'status';
+                  statusNode.textContent = 'Off quotes';
+                  const okB = d.createElement('button');
+                  okB.textContent = 'OK';
+                  okB.addEventListener('click', function() {
+                    if (errDialog.parentElement) errDialog.parentElement.removeChild(errDialog);
+                  });
+                  errDialog.appendChild(statusNode);
+                  errDialog.appendChild(okB);
+                  d.body.appendChild(errDialog);
+                } else if (opts.mode === 'bare_ok_timeout') {
+                  // Shows ONLY a bare OK button with empty/non-confirming text -> must NEVER count as success!
+                  const bareDialog = d.createElement('div');
+                  bareDialog.setAttribute('role', 'dialog');
+                  const okB = d.createElement('button');
+                  okB.textContent = 'OK';
+                  bareDialog.appendChild(okB);
+                  d.body.appendChild(bareDialog);
+                }
+              });
+
+              tradeForm.appendChild(sellBtn);
+              tradeForm.appendChild(buyBtn);
+              d.body.appendChild(tradeForm);
+            }
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradePhase: function(k, d) { state.phases.push({ k: k, d: d }); },
+              onTradeLog: function(m, err, done) { state.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(json) { state.results.push(JSON.parse(json)); }
+            };
+            return { doc: d, state: state, getVolInput: function() { return volInputRef; } };
+          }
+
+          // 4. MT5 stale dialog cleanup + F9 form open + beforeinput/Tab/blur + broker rejection stops 3-trade sequence!
+          let ctx = buildRichMt5Dom({ withStaleDialogs: true, mode: 'reject', decrementDisabled: true });
+          eval($mt5RejectMultiJs);
+          for (let w = 0; w < 80 && !ctx.state.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt5StaleCleanupPreservedPositionsOk =
+            ctx.state.staleResultDismissed &&
+            ctx.state.staleFormClosed &&
+            !ctx.state.openPositionCloseClicked;
+          const mt5F9FormOpenedOk = ctx.state.f9Opened;
+          const mt5FieldEventSequenceOk =
+            ['beforeinput', 'input', 'change', 'keydown', 'keyup', 'blur'].every(function(ev) {
+              return ctx.state.eventsSeen.indexOf(ev) >= 0;
+            });
+          const mt5VerifyMinVolOk =
+            ctx.getVolInput() &&
+            window.BtechRoboTraderDiscovery.verifyMT5MinimumVolume(ctx.getVolInput()) === 'filled';
+          const mt5RejectionStopsMultiTradeOk =
+            ctx.state.buyClicks === 1 &&
+            ctx.state.results.length === 1 &&
+            ctx.state.results[0].status === 'REJECTED' &&
+            ctx.state.results[0].rawMessage.indexOf('Off quotes') >= 0 &&
+            ctx.state.logs.some(function(l) { return l.err && l.done; });
+
+          // 5. MT5 disabled button with aria-invalid Volume must NEVER be force-enabled
+          ctx = buildRichMt5Dom({ skipF9Button: true, disableBuyButton: true, markVolumeInvalid: true });
+          eval($mt5DisabledInvalidJs);
+          for (let w = 0; w < 60 && !ctx.state.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt5DisabledNotForceEnabledOk =
+            ctx.state.buyClicks === 0 &&
+            ctx.state.results.some(function(r) { return r.status === 'REJECTED' && r.rawMessage.indexOf('Invalid Volume value') >= 0; });
+
+          // 6. MT5 bare OK dialog MUST NOT confirm trade -> times out to UNKNOWN without retry & stops Trade 2/2!
+          ctx = buildRichMt5Dom({ skipF9Button: true, mode: 'bare_ok_timeout' });
+          eval($mt5BareOkThenUnknownJs);
+          for (let w = 0; w < 100 && !ctx.state.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt5BareOkNotCountedAndUnknownNoRetryOk =
+            ctx.state.buyClicks === 1 &&
+            ctx.state.results.length === 1 &&
+            ctx.state.results[0].status === 'UNKNOWN' &&
+            ctx.state.results[0].retried === false &&
+            ctx.state.results[0].rawMessage.indexOf('Unable to confirm trade submission. The trade was not retried.') >= 0 &&
+            ctx.state.phases.some(function(p) { return p.k === 'UNKNOWN'; });
+
+          // 7. MT4 Ported Path: mousedown/mouseup/contextmenu sequence, Show All mouseover, #volume/#sl ('0' reset)/#tp/#comment,
+          //    bare OK ignored, rejection stops remaining count, open position untouched
+          function buildRichMt4Dom(opts) {
+            opts = opts || {};
+            const d = createDomDocument();
+            const state = {
+              ctxEvents: [],
+              showAllMouseOver: false,
+              slHadZeroBeforeFinal: false,
+              openPositionCloseClicked: false,
+              sellClicks: 0,
+              buyClicks: 0,
+              results: [],
+              logs: []
+            };
+            const ws = d.createElement('div');
+            ws.textContent = 'Balance: 5,000.00 USD Equity: 5,000.00 USD Market Watch';
+            d.body.appendChild(ws);
+
+            const posTable = d.createElement('table');
+            const posRow = d.createElement('tr');
+            posRow.textContent = '#440011 sell 0.01 EURUSD at 1.1100';
+            const closePos = d.createElement('button');
+            closePos.textContent = 'Close Position';
+            closePos.addEventListener('click', function() { state.openPositionCloseClicked = true; });
+            posRow.appendChild(closePos);
+            posTable.appendChild(posRow);
+            d.body.appendChild(posTable);
+
+            const mw = d.createElement('div');
+            mw.className = 'market-watch-panel';
+            const mwLbl = d.createElement('div');
+            mwLbl.textContent = 'Market Watch';
+            mw.appendChild(mwLbl);
+
+            const tbl = d.createElement('table');
+            const tb = d.createElement('tbody');
+            const row1 = d.createElement('tr');
+            const td1 = d.createElement('td');
+            td1.textContent = 'USDJPY 150.00 150.02';
+            row1.appendChild(td1);
+            tb.appendChild(row1);
+            tbl.appendChild(tb);
+            mw.appendChild(tbl);
+            d.body.appendChild(mw);
+
+            ['mousedown', 'mouseup', 'contextmenu'].forEach(function(evName) {
+              row1.addEventListener(evName, function() { state.ctxEvents.push(evName); });
+            });
+            row1.addEventListener('contextmenu', function() {
+              const menu = d.createElement('div');
+              menu.className = 'page-menu';
+              const showAll = d.createElement('div');
+              showAll.setAttribute('role', 'menuitem');
+              showAll.textContent = 'Show All';
+              showAll.addEventListener('mouseover', function() { state.showAllMouseOver = true; });
+              showAll.addEventListener('click', function() {
+                const row2 = d.createElement('tr');
+                const td2 = d.createElement('td');
+                td2.textContent = 'EURUSD';
+                row2.appendChild(td2);
+                row2.addEventListener('dblclick', function() {
+                  const ticket = d.createElement('div');
+                  ticket.setAttribute('role', 'dialog');
+                  const hdr = d.createElement('h3');
+                  hdr.setAttribute('data-symbol', 'EURUSD');
+                  hdr.textContent = 'EURUSD';
+                  ticket.appendChild(hdr);
+
+                  const vIn = d.createElement('input');
+                  vIn.id = 'volume';
+                  const slIn = d.createElement('input');
+                  slIn.id = 'sl';
+                  slIn.addEventListener('change', function() {
+                    if (slIn.value === '0') state.slHadZeroBeforeFinal = true;
+                  });
+                  const tpIn = d.createElement('input');
+                  tpIn.id = 'tp';
+                  const cmtIn = d.createElement('input');
+                  cmtIn.id = 'comment';
+                  ticket.appendChild(vIn);
+                  ticket.appendChild(slIn);
+                  ticket.appendChild(tpIn);
+                  ticket.appendChild(cmtIn);
+
+                  const sellB = d.createElement('button');
+                  sellB.textContent = 'Sell by Market';
+                  sellB.addEventListener('click', function() {
+                    state.sellClicks++;
+                    if (opts.mode === 'bare_ok_timeout') {
+                      const md = d.createElement('div');
+                      md.setAttribute('role', 'dialog');
+                      const ok = d.createElement('button');
+                      ok.textContent = 'OK';
+                      md.appendChild(ok);
+                      d.body.appendChild(md);
+                    }
+                  });
+                  const buyB = d.createElement('button');
+                  buyB.textContent = 'Buy by Market';
+                  buyB.addEventListener('click', function() {
+                    state.buyClicks++;
+                    const errD = d.createElement('div');
+                    errD.setAttribute('role', 'dialog');
+                    const msg = d.createElement('div');
+                    msg.className = 'error';
+                    msg.textContent = 'Not enough money';
+                    const ok = d.createElement('button');
+                    ok.textContent = 'OK';
+                    errD.appendChild(msg);
+                    errD.appendChild(ok);
+                    d.body.appendChild(errD);
+                  });
+                  ticket.appendChild(sellB);
+                  ticket.appendChild(buyB);
+                  d.body.appendChild(ticket);
+                });
+                tb.appendChild(row2);
+              });
+              menu.appendChild(showAll);
+              d.body.appendChild(menu);
+            });
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { state.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(json) { state.results.push(JSON.parse(json)); }
+            };
+            return state;
+          }
+
+          let st4 = buildRichMt4Dom({ mode: 'bare_ok_timeout' });
+          eval($mt4PortedJs);
+          for (let w = 0; w < 100 && !st4.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt4ContextMenuThreeEventsOk =
+            st4.ctxEvents.length >= 3 &&
+            st4.ctxEvents[0] === 'mousedown' &&
+            st4.ctxEvents[1] === 'mouseup' &&
+            st4.ctxEvents[2] === 'contextmenu';
+          const mt4ShowAllMouseOverOk = st4.showAllMouseOver === true;
+          const mt4SlZeroResetOk = st4.slHadZeroBeforeFinal === true;
+          const mt4BareOkNotCountedAndUnknownOk =
+            st4.sellClicks === 1 &&
+            !st4.openPositionCloseClicked &&
+            st4.results.length === 1 &&
+            st4.results[0].status === 'UNKNOWN' &&
+            st4.results[0].retried === false;
+
+          let st4Rej = buildRichMt4Dom({ mode: 'reject' });
+          eval($mt4BareOkAndRejectJs);
+          for (let w = 0; w < 80 && !st4Rej.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt4RejectionStops3TradeCountOk =
+            st4Rej.buyClicks === 1 &&
+            st4Rej.results.length === 1 &&
+            st4Rej.results[0].status === 'REJECTED' &&
+            st4Rej.results[0].rawMessage.indexOf('Not enough money') >= 0;
+
+          // 8. Part 2 N explicit remove-session helper returns 'true' only when 'Remove' button exists
+          const dRem = createDomDocument();
+          const remBtn = dRem.createElement('button');
+          remBtn.textContent = 'Remove';
+          let remClicked = false;
+          remBtn.addEventListener('click', function() { remClicked = true; });
+          dRem.body.appendChild(remBtn);
+          installDoc(dRem);
+          const removeRes = eval($removeSessionJs);
+          const removeSessionExplicitOk = removeRes === 'true' && remClicked === true;
+
+          console.log(JSON.stringify({
+            ok: true,
+            mt5AuthInvalidErrorOk: mt5AuthInvalidErrorOk,
+            mt5AuthSuccessOk: mt5AuthSuccessOk,
+            mt5NoSymbolsFoundOk: mt5NoSymbolsFoundOk,
+            mt5StaleCleanupPreservedPositionsOk: mt5StaleCleanupPreservedPositionsOk,
+            mt5F9FormOpenedOk: mt5F9FormOpenedOk,
+            mt5FieldEventSequenceOk: mt5FieldEventSequenceOk,
+            mt5VerifyMinVolOk: mt5VerifyMinVolOk,
+            mt5RejectionStopsMultiTradeOk: mt5RejectionStopsMultiTradeOk,
+            mt5DisabledNotForceEnabledOk: mt5DisabledNotForceEnabledOk,
+            mt5BareOkNotCountedAndUnknownNoRetryOk: mt5BareOkNotCountedAndUnknownNoRetryOk,
+            mt4ContextMenuThreeEventsOk: mt4ContextMenuThreeEventsOk,
+            mt4ShowAllMouseOverOk: mt4ShowAllMouseOverOk,
+            mt4SlZeroResetOk: mt4SlZeroResetOk,
+            mt4BareOkNotCountedAndUnknownOk: mt4BareOkNotCountedAndUnknownOk,
+            mt4RejectionStops3TradeCountOk: mt4RejectionStops3TradeCountOk,
+            removeSessionExplicitOk: removeSessionExplicitOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Ported RoboTrader suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("mt5AuthInvalidErrorOk"))
+        assertTrue(results.getBoolean("mt5AuthSuccessOk"))
+        assertTrue(results.getBoolean("mt5NoSymbolsFoundOk"))
+        assertTrue(results.getBoolean("mt5StaleCleanupPreservedPositionsOk"))
+        assertTrue(results.getBoolean("mt5F9FormOpenedOk"))
+        assertTrue(results.getBoolean("mt5FieldEventSequenceOk"))
+        assertTrue(results.getBoolean("mt5VerifyMinVolOk"))
+        assertTrue(results.getBoolean("mt5RejectionStopsMultiTradeOk"))
+        assertTrue(results.getBoolean("mt5DisabledNotForceEnabledOk"))
+        assertTrue(results.getBoolean("mt5BareOkNotCountedAndUnknownNoRetryOk"))
+        assertTrue(results.getBoolean("mt4ContextMenuThreeEventsOk"))
+        assertTrue(results.getBoolean("mt4ShowAllMouseOverOk"))
+        assertTrue(results.getBoolean("mt4SlZeroResetOk"))
+        assertTrue(results.getBoolean("mt4BareOkNotCountedAndUnknownOk"))
+        assertTrue(results.getBoolean("mt4RejectionStops3TradeCountOk"))
+        assertTrue(results.getBoolean("removeSessionExplicitOk"))
+    }
+
+    @Test
+    fun `JustMarkets screenshot correction suite verifies platform mismatch, Connect to account reconnect, plus vs check watchlist chart workflow, MT4 Symbols dialog, and order-disabled banner`() {
+        val mt4OnMt5UrlJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "XAUUSD.s",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 1,
+                platform = "MT4",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+            )
+        )
+        val mt5OnMt4UrlJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "EURUSD",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo",
+            )
+        )
+        val mt5ReconnectTradeJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "XAUUSD.s",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "JM-PRO",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+                accountLogin = "2101016455",
+            )
+        )
+        val mt5ExactMismatchTradeJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "XAUUSD",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "JM-STRICT",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+                accountLogin = "2101016455",
+            )
+        )
+        val mt5CheckedDiscoveryJs = JSONObject.quote(
+            WebTerminalScripts.buildSymbolDiscoveryScript(
+                platform = "MT5",
+                requestedSymbol = "XAGUSD.s",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+                pollDelayMs = 15,
+            )
+        )
+        val mt4SymbolsDialogJs = JSONObject.quote(
+            WebTerminalScripts.buildSymbolDiscoveryScript(
+                platform = "MT4",
+                requestedSymbol = "XAUUSD.m",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo",
+                pollDelayMs = 15,
+            )
+        )
+        val mt5DisabledServerJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "XAGUSD.s",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+            )
+        )
+        val mt5PendingPlaceJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "XAGUSD.s",
+                direction = "BUY",
+                lot = "0.02",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo2",
+            )
+        )
+        val mt5VirtualizedBtcJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "BTCUSD.s",
+                direction = "BUY",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "VM-BTC",
+                tradeCount = 1,
+                platform = "MT5",
+                broker = "JustMarkets",
+                server = "JustMarkets-Live",
+            )
+        )
+        val mt4ShowAllFallbackJs = JSONObject.quote(
+            WebTerminalScripts.buildSymbolDiscoveryScript(
+                platform = "MT4",
+                requestedSymbol = "XAUUSD.m",
+                broker = "JustMarkets",
+                server = "JustMarkets-Demo",
+                pollDelayMs = 15,
+            )
+        )
+
+        val script = """
+        (async function() {
+          // 1. Platform mismatch guard: MT4 account on https://live.justmarkets.com/terminal MUST reject cleanly!
+          let doc = createDomDocument();
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+          installDoc(doc);
+          const mismatchLogs1 = [];
+          const mismatchResults1 = [];
+          window.BtechBridge = {
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) { mismatchLogs1.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(j) { mismatchResults1.push(JSON.parse(j)); }
+          };
+          eval($mt4OnMt5UrlJs);
+          await sleepMs(40);
+          const mt4OnJustMarketsMt5RejectedOk =
+            mismatchResults1.length === 1 &&
+            mismatchResults1[0].status === 'REJECTED' &&
+            mismatchResults1[0].rawMessage.indexOf('Platform mismatch') >= 0 &&
+            mismatchResults1[0].rawMessage.indexOf('MT5') >= 0;
+
+          // 2. Platform mismatch guard: MT5 account on https://metatraderweb.app/trade?version=4 MUST reject cleanly!
+          doc = createDomDocument();
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+          installDoc(doc);
+          const mismatchResults2 = [];
+          window.BtechBridge = {
+            onTradePhase: function() {},
+            onTradeLog: function() {},
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(j) { mismatchResults2.push(JSON.parse(j)); }
+          };
+          eval($mt5OnMt4UrlJs);
+          await sleepMs(40);
+          const mt5OnMt4WebRejectedOk =
+            mismatchResults2.length === 1 &&
+            mismatchResults2[0].status === 'REJECTED' &&
+            mismatchResults2[0].rawMessage.indexOf('Platform mismatch') >= 0 &&
+            mismatchResults2[0].rawMessage.indexOf('MT4') >= 0;
+
+          // Reset URL to neutral MT5 endpoint for remaining checks
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+
+          // 3. Screenshot 1 + 2 + 3 + 5 + 6:
+          //    Disconnected MT5 ("Trading accounts: 2101016455", "Connection closed or not established")
+          //    taps green <button>Connect to account</button> (NOT top-left <nav><a>, NOT "Remove"),
+          //    ignores folder category rows ("Forex S 10/29", "Metals S 1/9", "OIL S 0/3"),
+          //    types "XAUUSD", matches "XAUUSD.s", clicks "+", clears search ("X"),
+          //    verifies "XAUUSD.s" in displayed watchlist, clicks it to switch chart from EURUSD -> XAUUSD.s,
+          //    opens "Show Trade Form (F9)", submits Buy by Market ONCE, confirms #551001!
+          doc = createDomDocument();
+          const jmState = {
+            sidebarLinkClicked: false,
+            removeClicked: false,
+            reconnectButtonClicks: 0,
+            plusClicked: 0,
+            checkClicks: 0,
+            searchCleared: false,
+            watchlistSelected: '',
+            f9Opened: false,
+            buyClicks: 0,
+            logs: [],
+            results: []
+          };
+
+          const rootView = doc.createElement('div');
+          doc.body.appendChild(rootView);
+
+          function renderScreenshot1Reconnect() {
+            rootView.textContent = '';
+            const nav = doc.createElement('nav');
+            const navLink = doc.createElement('a');
+            navLink.textContent = 'Connect to account';
+            navLink.addEventListener('click', function() { jmState.sidebarLinkClicked = true; });
+            nav.appendChild(navLink);
+            rootView.appendChild(nav);
+
+            const pane = doc.createElement('div');
+            const hdr = doc.createElement('div');
+            hdr.textContent = 'Trading accounts: 2101016455 | JustMarkets-Demo2 | Connection closed or not established';
+            pane.appendChild(hdr);
+
+            const connectBtn = doc.createElement('button');
+            connectBtn.textContent = 'Connect to account';
+            connectBtn.addEventListener('click', function() {
+              jmState.reconnectButtonClicks++;
+              setTimeout(renderConnectedJustMarketsWorkspace, 60);
+            });
+            const removeBtn = doc.createElement('button');
+            removeBtn.textContent = 'Remove';
+            removeBtn.addEventListener('click', function() { jmState.removeClicked = true; });
+            pane.appendChild(connectBtn);
+            pane.appendChild(removeBtn);
+            rootView.appendChild(pane);
+          }
+
+          function renderConnectedJustMarketsWorkspace() {
+            rootView.textContent = '';
+            const wsHdr = doc.createElement('div');
+            wsHdr.textContent = 'Balance: 100 000.00 USD Equity: 100 000.00 USD Free margin: 100 000.00 USD Quotes Chart Trade History';
+            rootView.appendChild(wsHdr);
+
+            const chartHeader = doc.createElement('div');
+            chartHeader.className = 'chart-header';
+            chartHeader.textContent = 'EURUSD, M15';
+            rootView.appendChild(chartHeader);
+
+            const searchWrap = doc.createElement('div');
+            const searchIn = doc.createElement('input');
+            searchIn.setAttribute('placeholder', 'Search symbol');
+            const clearBtn = doc.createElement('button');
+            clearBtn.setAttribute('aria-label', 'Clear search');
+            clearBtn.textContent = '×';
+            clearBtn.style.display = 'none';
+            searchWrap.appendChild(searchIn);
+            searchWrap.appendChild(clearBtn);
+            rootView.appendChild(searchWrap);
+
+            const listBox = doc.createElement('div');
+            rootView.appendChild(listBox);
+
+            const addedSet = { 'XAGUSD.s': true };
+            let query = '';
+
+            function renderWatchlistOrSearch() {
+              listBox.textContent = '';
+              if (!query) {
+                clearBtn.style.display = 'none';
+                ['EURUSD', 'XAGUSD.s', 'XAUUSD.s'].filter(function(s) { return !!addedSet[s]; }).forEach(function(sym) {
+                  const row = doc.createElement('div');
+                  row.setAttribute('role', 'row');
+                  row.setAttribute('data-symbol', sym);
+                  row.textContent = sym + ' 2650.10 2650.45';
+                  row.addEventListener('click', function() {
+                    jmState.watchlistSelected = sym;
+                    chartHeader.textContent = sym + ', M15';
+                  });
+                  listBox.appendChild(row);
+                });
+              } else {
+                clearBtn.style.display = 'inline-block';
+                // Folder category rows from Screenshots 5 & 6 MUST be ignored
+                ['Forex S 10/29', 'Metals S 1/9', 'OIL S 0/3'].forEach(function(cat) {
+                  const fRow = doc.createElement('div');
+                  fRow.setAttribute('role', 'row');
+                  fRow.textContent = cat;
+                  listBox.appendChild(fRow);
+                });
+
+                const pool = ['XAGUSD.s', 'XAUUSD.s'];
+                pool.filter(function(s) { return s.toLowerCase().indexOf(query.toLowerCase()) >= 0; }).forEach(function(sym) {
+                  const sRow = doc.createElement('div');
+                  sRow.setAttribute('role', 'row');
+                  sRow.setAttribute('data-symbol', sym);
+                  const lbl = doc.createElement('span');
+                  lbl.textContent = sym;
+                  sRow.appendChild(lbl);
+                  if (addedSet[sym]) {
+                    const chk = doc.createElement('span');
+                    chk.setAttribute('aria-label', 'Added');
+                    chk.textContent = '✓';
+                    chk.addEventListener('click', function() { jmState.checkClicks++; });
+                    sRow.appendChild(chk);
+                  } else {
+                    const plus = doc.createElement('button');
+                    plus.setAttribute('aria-label', 'Add');
+                    plus.textContent = '+';
+                    plus.addEventListener('click', function() {
+                      jmState.plusClicked++;
+                      addedSet[sym] = true;
+                    });
+                    sRow.appendChild(plus);
+                  }
+                  listBox.appendChild(sRow);
+                });
+              }
+            }
+
+            searchIn.addEventListener('input', function() {
+              query = searchIn.value || '';
+              renderWatchlistOrSearch();
+            });
+            clearBtn.addEventListener('click', function() {
+              jmState.searchCleared = true;
+              searchIn.value = '';
+              query = '';
+              renderWatchlistOrSearch();
+            });
+
+            const f9Btn = doc.createElement('button');
+            const f9Icon = doc.createElement('span');
+            f9Icon.setAttribute('title', 'Show Trade Form (F9)');
+            f9Btn.appendChild(f9Icon);
+            f9Btn.addEventListener('click', function() {
+              jmState.f9Opened = true;
+              const form = doc.createElement('div');
+              form.className = 'trade-form';
+              const symLbl = doc.createElement('div');
+              symLbl.className = 'symbol-header';
+              symLbl.setAttribute('data-symbol', jmState.watchlistSelected || 'XAUUSD.s');
+              symLbl.textContent = jmState.watchlistSelected || 'XAUUSD.s';
+              form.appendChild(symLbl);
+
+              const typeSel = doc.createElement('select');
+              const optMarket = doc.createElement('option');
+              optMarket.value = 'Market Execution';
+              optMarket.textContent = 'Market Execution';
+              typeSel.appendChild(optMarket);
+              form.appendChild(typeSel);
+
+              const vWrap = doc.createElement('div');
+              vWrap.className = 'trade-input';
+              const vLbl = doc.createElement('span');
+              vLbl.className = 'label';
+              vLbl.textContent = 'Volume';
+              const vIn = doc.createElement('input');
+              vWrap.appendChild(vLbl);
+              vWrap.appendChild(vIn);
+              form.appendChild(vWrap);
+
+              const cWrap = doc.createElement('div');
+              cWrap.className = 'comment';
+              const cLbl = doc.createElement('div');
+              cLbl.className = 'label';
+              cLbl.textContent = 'Comment';
+              const cIn = doc.createElement('input');
+              cWrap.appendChild(cLbl);
+              cWrap.appendChild(cIn);
+              form.appendChild(cWrap);
+
+              const sellB = doc.createElement('button');
+              sellB.textContent = 'Sell by Market';
+              const buyB = doc.createElement('button');
+              buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                jmState.buyClicks++;
+                const row = doc.createElement('tr');
+                row.textContent = '#551001 buy ' + vIn.value + ' XAUUSD.s at 2650.45';
+                rootView.appendChild(row);
+              });
+              form.appendChild(sellB);
+              form.appendChild(buyB);
+              rootView.appendChild(form);
+            });
+            rootView.appendChild(f9Btn);
+
+            renderWatchlistOrSearch();
+          }
+
+          renderScreenshot1Reconnect();
+          installDoc(doc);
+          window.BtechBridge = {
+            onTradeRequiresAuth: function() {},
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) { jmState.logs.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(j) { jmState.results.push(JSON.parse(j)); }
+          };
+          eval($mt5ReconnectTradeJs);
+          for (let w = 0; w < 100 && !jmState.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(50);
+          }
+
+          const mt5ReconnectConnectButtonOk =
+            jmState.reconnectButtonClicks === 1 &&
+            !jmState.sidebarLinkClicked &&
+            !jmState.removeClicked;
+          const mt5PlusAddAndClearWatchlistChartOk =
+            jmState.plusClicked === 1 &&
+            jmState.searchCleared &&
+            jmState.watchlistSelected === 'XAUUSD.s' &&
+            jmState.f9Opened &&
+            jmState.buyClicks === 1 &&
+            jmState.results.length === 1 &&
+            jmState.results[0].status === 'ACCEPTED' &&
+            jmState.results[0].actualSymbol === 'XAUUSD.s';
+
+          // 3b. Checked symbol (✓) MUST NOT be re-added!
+          const chkBefore = jmState.checkClicks;
+          const plusBefore = jmState.plusClicked;
+          eval($mt5CheckedDiscoveryJs);
+          const chkRes = await window.__btechLastDiscoveryPromise;
+          const mt5CheckedSymbolNotReaddedOk =
+            chkRes.success &&
+            chkRes.actualSymbol === 'XAGUSD.s' &&
+            chkRes.alreadyChecked === true &&
+            jmState.plusClicked === plusBefore &&
+            jmState.checkClicks === chkBefore;
+
+          // 4. MT4 Symbols dialog workflow WITHOUT literal "Show All" command
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+          const d4 = createDomDocument();
+          const mt4SymState = { groupExpanded: false, showClicked: false, dblSym: '' };
+          const mwPanel = d4.createElement('div');
+          mwPanel.className = 'market-watch-panel';
+          const mwHdr = d4.createElement('div');
+          mwHdr.textContent = 'Market Watch';
+          mwPanel.appendChild(mwHdr);
+          const mwTbl = d4.createElement('table');
+          const mwBody = d4.createElement('tbody');
+          const mwRow1 = d4.createElement('tr');
+          const mwCell1 = d4.createElement('td');
+          mwCell1.textContent = 'EURUSD 1.0910 1.0912';
+          mwRow1.appendChild(mwCell1);
+          mwBody.appendChild(mwRow1);
+          mwTbl.appendChild(mwBody);
+          mwPanel.appendChild(mwTbl);
+          d4.body.appendChild(mwPanel);
+
+          mwPanel.addEventListener('contextmenu', function() {
+            const menu = d4.createElement('div');
+            menu.className = 'page-menu';
+            // Intentionally NO "Show All" item — only "New Order" and "Symbols..."
+            ['New Order', 'Symbols...', 'Depth of Market'].forEach(function(label) {
+              const mi = d4.createElement('div');
+              mi.setAttribute('role', 'menuitem');
+              mi.textContent = label;
+              if (label === 'Symbols...') {
+                mi.addEventListener('click', function() {
+                  const dlg = d4.createElement('div');
+                  dlg.setAttribute('role', 'dialog');
+                  const title = d4.createElement('h3');
+                  title.textContent = 'Symbols';
+                  dlg.appendChild(title);
+
+                  const grp = d4.createElement('div');
+                  grp.className = 'group collapsed';
+                  grp.setAttribute('aria-expanded', 'false');
+                  grp.textContent = 'Metals';
+                  grp.addEventListener('click', function() {
+                    if (mt4SymState.groupExpanded) return;
+                    mt4SymState.groupExpanded = true;
+                    grp.setAttribute('aria-expanded', 'true');
+                    const hiddenRow = d4.createElement('div');
+                    hiddenRow.setAttribute('role', 'row');
+                    hiddenRow.setAttribute('data-visible', 'false');
+                    hiddenRow.textContent = 'XAUUSD.m';
+                    dlg.appendChild(hiddenRow);
+                  });
+                  dlg.appendChild(grp);
+
+                  const showBtn = d4.createElement('button');
+                  showBtn.textContent = 'Show';
+                  showBtn.addEventListener('click', function() {
+                    mt4SymState.showClicked = true;
+                    const newRow = d4.createElement('tr');
+                    const c = d4.createElement('td');
+                    c.textContent = 'XAUUSD.m 2650.00 2650.30';
+                    newRow.appendChild(c);
+                    newRow.addEventListener('dblclick', function() { mt4SymState.dblSym = 'XAUUSD.m'; });
+                    mwBody.appendChild(newRow);
+                  });
+                  const closeB = d4.createElement('button');
+                  closeB.textContent = 'Close';
+                  closeB.addEventListener('click', function() {
+                    if (dlg.parentElement) dlg.parentElement.removeChild(dlg);
+                  });
+                  dlg.appendChild(showBtn);
+                  dlg.appendChild(closeB);
+                  d4.body.appendChild(dlg);
+                });
+              }
+              menu.appendChild(mi);
+            });
+            d4.body.appendChild(menu);
+          });
+
+          installDoc(d4);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval($mt4SymbolsDialogJs);
+          const mt4DlgRes = await window.__btechLastDiscoveryPromise;
+          const mt4SymbolsDialogWorkflowOk =
+            mt4DlgRes.success &&
+            mt4DlgRes.usedSymbolsDialog === true &&
+            mt4DlgRes.actualSymbol === 'XAUUSD.m' &&
+            mt4SymState.groupExpanded &&
+            mt4SymState.showClicked &&
+            mt4SymState.dblSym === 'XAUUSD.m';
+
+          // 5. Screenshot 4 Order Form: disabled button + "Trading for this account is disabled on the server"
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+          function buildOrderFormDoc(opts) {
+            const od = createDomDocument();
+            const ost = { clicks: 0, results: [], logs: [] };
+            const ws = od.createElement('div');
+            ws.textContent = 'Balance: 100.00 USD Equity: 100.00 USD Quotes Chart Trade';
+            od.body.appendChild(ws);
+            const sIn = od.createElement('input');
+            sIn.setAttribute('placeholder', 'Search symbol');
+            const row = od.createElement('div');
+            row.setAttribute('role', 'row');
+            row.setAttribute('data-symbol', 'XAGUSD.s');
+            row.textContent = 'XAGUSD.s';
+            row.addEventListener('click', function() {
+              const form = od.createElement('div');
+              form.className = 'trade-form';
+              const h = od.createElement('div');
+              h.setAttribute('data-symbol', 'XAGUSD.s');
+              h.textContent = 'XAGUSD.s';
+              form.appendChild(h);
+
+              const sel = od.createElement('select');
+              const opt = od.createElement('option');
+              opt.value = opts.orderType;
+              opt.textContent = opts.orderType;
+              sel.appendChild(opt);
+              form.appendChild(sel);
+
+              const vWrap = od.createElement('div');
+              vWrap.className = 'trade-input';
+              const vLbl = od.createElement('span');
+              vLbl.className = 'label';
+              vLbl.textContent = 'Volume';
+              const vIn = od.createElement('input');
+              vWrap.appendChild(vLbl);
+              vWrap.appendChild(vIn);
+              form.appendChild(vWrap);
+
+              if (opts.pending) {
+                const placeB = od.createElement('button');
+                placeB.textContent = 'Place';
+                placeB.addEventListener('click', function() {
+                  ost.clicks++;
+                  const r = od.createElement('tr');
+                  r.textContent = '#662001 buy limit 0.02 XAGUSD.s at 30.10';
+                  od.body.appendChild(r);
+                });
+                form.appendChild(placeB);
+              } else {
+                const sellB = od.createElement('button');
+                sellB.textContent = 'Sell by Market';
+                sellB.disabled = !!opts.disabled;
+                const buyB = od.createElement('button');
+                buyB.textContent = 'Buy by Market';
+                buyB.disabled = !!opts.disabled;
+                form.appendChild(sellB);
+                form.appendChild(buyB);
+              }
+
+              if (opts.bannerError) {
+                const banner = od.createElement('div');
+                banner.className = 'footer-error';
+                banner.textContent = opts.bannerError;
+                form.appendChild(banner);
+              }
+              od.body.appendChild(form);
+            });
+            od.body.appendChild(sIn);
+            od.body.appendChild(row);
+            installDoc(od);
+            window.BtechBridge = {
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { ost.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { ost.results.push(JSON.parse(j)); }
+            };
+            return ost;
+          }
+
+          const disSt = buildOrderFormDoc({
+            orderType: 'Market Execution',
+            disabled: true,
+            bannerError: 'Trading for this account is disabled on the server'
+          });
+          eval($mt5DisabledServerJs);
+          for (let w = 0; w < 60 && !disSt.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const serverDisabledBannerRejectedOk =
+            disSt.clicks === 0 &&
+            disSt.results.length === 1 &&
+            disSt.results[0].status === 'REJECTED' &&
+            disSt.results[0].rawMessage.indexOf('Trading for this account is disabled on the server') >= 0;
+
+          const pendSt = buildOrderFormDoc({
+            orderType: 'Buy Limit',
+            pending: true
+          });
+          eval($mt5PendingPlaceJs);
+          for (let w = 0; w < 60 && !pendSt.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const pendingOrderPlaceDetectedOk =
+            pendSt.clicks === 1 &&
+            pendSt.results.length === 1 &&
+            pendSt.results[0].status === 'ACCEPTED';
+
+          // 6. Virtualized JustMarkets MT5 watchlist + unlabeled <svg> '+' icon button:
+          //    Clearing search renders only visible top pairs ('EURUSD', 'USDJPY') — 'BTCUSD.s' is NOT in top unfiltered DOM.
+          //    Must NOT fail with 'not present in displayed watchlist'; falls back to re-search + click icon + select row -> Trade ACCEPTED!
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+          const vDoc = createDomDocument();
+          const vSt = { iconClicks: 0, rowSelected: '', buyClicks: 0, results: [], logs: [] };
+          const vWs = vDoc.createElement('div');
+          vWs.textContent = 'Balance: 500.00 USD Equity: 500.00 USD Quotes Chart Trade';
+          vDoc.body.appendChild(vWs);
+
+          const vChartHdr = vDoc.createElement('div');
+          vChartHdr.className = 'chart-header';
+          vChartHdr.textContent = 'EURUSD, H1';
+          vDoc.body.appendChild(vChartHdr);
+
+          const vSearchWrap = vDoc.createElement('div');
+          const vSearchIn = vDoc.createElement('input');
+          vSearchIn.setAttribute('placeholder', 'Search symbol');
+          const vClearBtn = vDoc.createElement('button');
+          vClearBtn.textContent = '×';
+          vSearchWrap.appendChild(vSearchIn);
+          vSearchWrap.appendChild(vClearBtn);
+          vDoc.body.appendChild(vSearchWrap);
+
+          const vList = vDoc.createElement('div');
+          vDoc.body.appendChild(vList);
+          let vQuery = '';
+          function renderVirtualWatchlist() {
+            vList.textContent = '';
+            if (!vQuery) {
+              // Simulated virtualized viewport where BTCUSD.s is scrolled below fold and absent from DOM!
+              ['EURUSD', 'USDJPY', 'GBPUSD'].forEach(function(sym) {
+                const r = vDoc.createElement('div');
+                r.setAttribute('role', 'row');
+                r.setAttribute('data-symbol', sym);
+                r.textContent = sym;
+                vList.appendChild(r);
+              });
+            } else if ('BTCUSD.s'.toUpperCase().indexOf(vQuery.toUpperCase()) >= 0) {
+              const sRow = vDoc.createElement('div');
+              sRow.setAttribute('role', 'row');
+              const symSpan = vDoc.createElement('span');
+              symSpan.textContent = 'BTCUSD.s';
+              const iconBtn = vDoc.createElement('button'); // NO text label, NO aria-label — pure icon button!
+              const svg = vDoc.createElement('svg');
+              const p1 = vDoc.createElement('path');
+              p1.setAttribute('d', 'M12 5V19M5 12H19');
+              svg.appendChild(p1);
+              iconBtn.appendChild(svg);
+              iconBtn.addEventListener('click', function() { vSt.iconClicks++; });
+              sRow.appendChild(symSpan);
+              sRow.appendChild(iconBtn);
+              sRow.addEventListener('click', function() {
+                vSt.rowSelected = 'BTCUSD.s';
+                vChartHdr.textContent = 'BTCUSD.s, H1';
+                const f = vDoc.createElement('div');
+                f.className = 'trade-form';
+                const sh = vDoc.createElement('div');
+                sh.setAttribute('data-symbol', 'BTCUSD.s');
+                sh.textContent = 'BTCUSD.s';
+                f.appendChild(sh);
+                const vw = vDoc.createElement('div');
+                vw.className = 'trade-input';
+                const vl = vDoc.createElement('span');
+                vl.className = 'label';
+                vl.textContent = 'Volume';
+                const vi = vDoc.createElement('input');
+                vw.appendChild(vl);
+                vw.appendChild(vi);
+                f.appendChild(vw);
+                const bb = vDoc.createElement('button');
+                bb.textContent = 'Buy by Market';
+                bb.addEventListener('click', function() {
+                  vSt.buyClicks++;
+                  const tr = vDoc.createElement('tr');
+                  tr.textContent = '#991002 buy ' + vi.value + ' BTCUSD.s at 91500.00';
+                  vDoc.body.appendChild(tr);
+                });
+                f.appendChild(bb);
+                vDoc.body.appendChild(f);
+              });
+              vList.appendChild(sRow);
+            }
+          }
+          vSearchIn.addEventListener('input', function() {
+            vQuery = vSearchIn.value || '';
+            renderVirtualWatchlist();
+          });
+          vClearBtn.addEventListener('click', function() {
+            vSearchIn.value = '';
+            vQuery = '';
+            renderVirtualWatchlist();
+          });
+          renderVirtualWatchlist();
+          installDoc(vDoc);
+          window.BtechBridge = {
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) { vSt.logs.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(j) { vSt.results.push(JSON.parse(j)); }
+          };
+          eval($mt5VirtualizedBtcJs);
+          for (let w = 0; w < 150 && !vSt.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt5VirtualizedWatchlistSearchFallbackOk =
+            vSt.iconClicks === 1 &&
+            vSt.rowSelected === 'BTCUSD.s' &&
+            vSt.buyClicks === 1 &&
+            vSt.results.length === 1 &&
+            vSt.results[0].status === 'ACCEPTED' &&
+            vSt.results[0].actualSymbol === 'BTCUSD.s';
+
+          // 7. MT4 Symbols dialog empty/missing entry falls back cleanly to Show All -> finds XAUUSD.m!
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+          const d4Fb = createDomDocument();
+          const fb4St = { showAllFallbackUsed: false, dblSym: '' };
+          const mw4 = d4Fb.createElement('div');
+          mw4.className = 'market-watch-panel';
+          const mw4Lbl = d4Fb.createElement('div');
+          mw4Lbl.textContent = 'Market Watch';
+          mw4.appendChild(mw4Lbl);
+          const mw4T = d4Fb.createElement('table');
+          const mw4B = d4Fb.createElement('tbody');
+          const mw4R = d4Fb.createElement('tr');
+          const mw4C = d4Fb.createElement('td');
+          mw4C.textContent = 'EURUSD 1.0910 1.0912';
+          mw4R.appendChild(mw4C);
+          mw4B.appendChild(mw4R);
+          mw4T.appendChild(mw4B);
+          mw4.appendChild(mw4T);
+          d4Fb.body.appendChild(mw4);
+
+          mw4.addEventListener('contextmenu', function() {
+            const existing = d4Fb.querySelectorAll('.page-menu');
+            existing.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+            const m = d4Fb.createElement('div');
+            m.className = 'page-menu';
+            const symMi = d4Fb.createElement('div');
+            symMi.setAttribute('role', 'menuitem');
+            symMi.textContent = 'Symbols...';
+            symMi.addEventListener('click', function() {
+              const dlg = d4Fb.createElement('div');
+              dlg.setAttribute('role', 'dialog');
+              const h = d4Fb.createElement('h3');
+              h.textContent = 'Symbols';
+              const cB = d4Fb.createElement('button');
+              cB.textContent = 'Close';
+              cB.addEventListener('click', function() { if (dlg.parentElement) dlg.parentElement.removeChild(dlg); });
+              dlg.appendChild(h);
+              dlg.appendChild(cB);
+              d4Fb.body.appendChild(dlg);
+            });
+            const allMi = d4Fb.createElement('div');
+            allMi.setAttribute('role', 'menuitem');
+            allMi.textContent = 'Show All';
+            allMi.addEventListener('click', function() {
+              fb4St.showAllFallbackUsed = true;
+              const nr = d4Fb.createElement('tr');
+              const nc = d4Fb.createElement('td');
+              nc.textContent = 'XAUUSD.m 2650.00 2650.30';
+              nr.appendChild(nc);
+              nr.addEventListener('dblclick', function() { fb4St.dblSym = 'XAUUSD.m'; });
+              mw4B.appendChild(nr);
+            });
+            m.appendChild(symMi);
+            m.appendChild(allMi);
+            d4Fb.body.appendChild(m);
+          });
+          installDoc(d4Fb);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval($mt4ShowAllFallbackJs);
+          const fb4Res = await window.__btechLastDiscoveryPromise;
+          const mt4SymbolsToShowAllFallbackOk =
+            fb4Res.success &&
+            fb4Res.actualSymbol === 'XAUUSD.m' &&
+            fb4St.showAllFallbackUsed &&
+            fb4St.dblSym === 'XAUUSD.m';
+
+          // 8. Strict exact broker symbol enforcement:
+          //    Requesting "XAUUSD" on a JustMarkets Pro terminal that ONLY has "XAUUSD.s" MUST reject with error:Symbol XAUUSD not found!
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+          doc = createDomDocument();
+          const jmStrictState = { buyClicks: 0, logs: [], results: [] };
+          const strictHdr = doc.createElement('div');
+          strictHdr.textContent = 'Balance: 1,000.00 USD Equity: 1,000.00 USD Quotes Chart Trade';
+          doc.body.appendChild(strictHdr);
+          const strictSearch = doc.createElement('input');
+          strictSearch.setAttribute('placeholder', 'Search symbol');
+          doc.body.appendChild(strictSearch);
+          const strictList = doc.createElement('div');
+          ['XAGUSD.s', 'XAUUSD.s', 'EURUSD'].forEach(function(sym) {
+            const r = doc.createElement('div');
+            r.setAttribute('role', 'row');
+            r.setAttribute('data-symbol', sym);
+            r.textContent = sym + ' 2650.00 2650.35';
+            strictList.appendChild(r);
+          });
+          doc.body.appendChild(strictList);
+          installDoc(doc);
+          window.BtechBridge = {
+            onTradeRequiresAuth: function() {},
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) { jmStrictState.logs.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(j) { jmStrictState.results.push(JSON.parse(j)); }
+          };
+          eval($mt5ExactMismatchTradeJs);
+          for (let w = 0; w < 100 && !jmStrictState.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+          const mt5SuffixMismatchRejectedOk =
+            jmStrictState.buyClicks === 0 &&
+            jmStrictState.logs.some(function(l) { return l.err && l.done && l.m.indexOf('error:Symbol XAUUSD not found') >= 0; });
+
+          // 9. Authentic Terminal -> Auth -> Symbol verification:
+          //    Nav text "Quotes Chart Trade History Balance: — Equity: —" MUST confirm TERMINAL_OK, MUST NOT fake AUTH_OK,
+          //    and proceeds to AUTH_OK -> SYMBOL_SEARCHING ONLY once real numeric Balance renders!
+          const authSeqDoc = createDomDocument();
+          const authSeq = { phases: [], balUpdates: [], logs: [] };
+          const navOnly = authSeqDoc.createElement('div');
+          navOnly.textContent = 'Quotes Chart Trade History Balance: — Equity: — P/L: —';
+          authSeqDoc.body.appendChild(navOnly);
+          const seqSearch = authSeqDoc.createElement('input');
+          seqSearch.setAttribute('placeholder', 'Search symbol');
+          authSeqDoc.body.appendChild(seqSearch);
+          const seqRow = authSeqDoc.createElement('div');
+          seqRow.setAttribute('role', 'row');
+          seqRow.setAttribute('data-symbol', 'XAGUSD.s');
+          seqRow.textContent = 'XAGUSD.s';
+          authSeqDoc.body.appendChild(seqRow);
+          installDoc(authSeqDoc);
+          window.BtechBridge = {
+            onTradeRequiresAuth: function() { authSeq.phases.push({ k: 'REQUIRES_AUTH', d: '' }); },
+            onBalanceUpdate: function(j) { authSeq.balUpdates.push(JSON.parse(j)); },
+            onTradePhase: function(k, d) { authSeq.phases.push({ k: k, d: d }); },
+            onTradeLog: function(m, err, done) { authSeq.logs.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function() {}
+          };
+          eval($mt5DisabledServerJs);
+          await sleepMs(900);
+          const noFakeAuthWhileBalanceDashOk =
+            authSeq.phases.some(function(p) { return p.k === 'TERMINAL_OK'; }) &&
+            !authSeq.phases.some(function(p) { return p.k === 'AUTH_OK'; }) &&
+            !authSeq.phases.some(function(p) { return p.k === 'SYMBOL_SEARCHING'; });
+          // Now simulate real broker connection populating Balance & Equity
+          navOnly.textContent = 'Balance: 150.00 USD Equity: 150.00 USD Free margin: 150.00 USD Quotes Chart Trade';
+          for (let w = 0; w < 60 && !authSeq.phases.some(function(p) { return p.k === 'SYMBOL_SEARCHING'; }); w++) {
+            await sleepMs(50);
+          }
+          const idxTermOk = authSeq.phases.findIndex(function(p) { return p.k === 'TERMINAL_OK'; });
+          const idxAuthOk = authSeq.phases.findIndex(function(p) { return p.k === 'AUTH_OK'; });
+          const idxSymSearch = authSeq.phases.findIndex(function(p) { return p.k === 'SYMBOL_SEARCHING'; });
+          const authenticVerifyPreventsNavFalsePositiveOk =
+            noFakeAuthWhileBalanceDashOk &&
+            idxTermOk >= 0 &&
+            idxAuthOk > idxTermOk &&
+            idxSymSearch > idxAuthOk &&
+            authSeq.balUpdates.some(function(b) { return String(b.balance).indexOf('150.00') >= 0; });
+
+          console.log(JSON.stringify({
+            ok: true,
+            mt4OnJustMarketsMt5RejectedOk: mt4OnJustMarketsMt5RejectedOk,
+            mt5OnMt4WebRejectedOk: mt5OnMt4WebRejectedOk,
+            mt5ReconnectConnectButtonOk: mt5ReconnectConnectButtonOk,
+            mt5PlusAddAndClearWatchlistChartOk: mt5PlusAddAndClearWatchlistChartOk,
+            mt5CheckedSymbolNotReaddedOk: mt5CheckedSymbolNotReaddedOk,
+            mt4SymbolsDialogWorkflowOk: mt4SymbolsDialogWorkflowOk,
+            serverDisabledBannerRejectedOk: serverDisabledBannerRejectedOk,
+            pendingOrderPlaceDetectedOk: pendingOrderPlaceDetectedOk,
+            mt5VirtualizedWatchlistSearchFallbackOk: mt5VirtualizedWatchlistSearchFallbackOk,
+            mt4SymbolsToShowAllFallbackOk: mt4SymbolsToShowAllFallbackOk,
+            mt5SuffixMismatchRejectedOk: mt5SuffixMismatchRejectedOk,
+            authenticVerifyPreventsNavFalsePositiveOk: authenticVerifyPreventsNavFalsePositiveOk,
+            vStDebug: vSt
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Screenshot correction suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("mt4OnJustMarketsMt5RejectedOk"))
+        assertTrue(results.getBoolean("mt5OnMt4WebRejectedOk"))
+        assertTrue(results.getBoolean("mt5ReconnectConnectButtonOk"))
+        assertTrue(results.getBoolean("mt5PlusAddAndClearWatchlistChartOk"))
+        assertTrue(results.getBoolean("mt5CheckedSymbolNotReaddedOk"))
+        assertTrue(results.getBoolean("mt4SymbolsDialogWorkflowOk"))
+        assertTrue(results.getBoolean("serverDisabledBannerRejectedOk"))
+        assertTrue("pendingOrderPlaceDetectedOk failed: $results", results.getBoolean("pendingOrderPlaceDetectedOk"))
+        assertTrue("mt5VirtualizedWatchlistSearchFallbackOk failed: vStDebug=${results.opt("vStDebug")}", results.getBoolean("mt5VirtualizedWatchlistSearchFallbackOk"))
+        assertTrue(results.getBoolean("mt4SymbolsToShowAllFallbackOk"))
+        assertTrue(results.getBoolean("mt5SuffixMismatchRejectedOk"))
+        assertTrue(results.getBoolean("authenticVerifyPreventsNavFalsePositiveOk"))
+    }
+
+    private fun runNodeHarness(testScriptJs: String): JSONObject {
+        val nodePath = listOf("/usr/local/bin/node", "/usr/bin/node")
+            .firstOrNull { File(it).canExecute() }
+            ?: "node"
+
+        val tmpFile = File.createTempFile("btech_robotrader_test_", ".js")
+        tmpFile.writeText(NODE_DOM_SHIM + "\n" + testScriptJs)
+        try {
+            val proc = ProcessBuilder(nodePath, tmpFile.absolutePath)
+                .redirectErrorStream(false)
+                .start()
+            val stdout = proc.inputStream.bufferedReader().readText()
+            val stderr = proc.errorStream.bufferedReader().readText()
+            val finished = proc.waitFor(45, TimeUnit.SECONDS)
+            if (!finished) {
+                proc.destroyForcibly()
+                throw AssertionError("Node JS DOM harness timed out. stderr=$stderr stdout=$stdout")
+            }
+            if (proc.exitValue() != 0) {
+                throw AssertionError("Node JS DOM harness exited with ${proc.exitValue()}.\nstderr:\n$stderr\nstdout:\n$stdout")
+            }
+            val lastLine = stdout.trim().lines().lastOrNull { it.trim().startsWith("{") }
+                ?: throw AssertionError("No JSON result line from Node harness.\nstdout:\n$stdout\nstderr:\n$stderr")
+            return JSONObject(lastLine)
+        } finally {
+            tmpFile.delete()
+        }
+    }
+
+    private fun buildMt4SuiteJs(
+        discoveryScriptFn: (sym: String, aliasesJson: String) -> String,
+        tradeScriptFn: (sym: String, dir: String, count: Int) -> String,
+        cancelScript: String,
+    ): String {
+        val sExact = JSONObject.quote(discoveryScriptFn("EURUSD", "{}"))
+        val sCase = JSONObject.quote(discoveryScriptFn("xauusd.m", "{}"))
+        val sDotM = JSONObject.quote(discoveryScriptFn("XAUUSD.m", "{}"))
+        val sDotEcn = JSONObject.quote(discoveryScriptFn("GBPUSD.ecn", "{}"))
+        val sUnmatchedXau = JSONObject.quote(discoveryScriptFn("XAUUSD", "{}"))
+        val sUnmatchedGbp = JSONObject.quote(discoveryScriptFn("GBPUSD", "{}"))
+        val sMissing = JSONObject.quote(discoveryScriptFn("NONEXIST99", "{}"))
+        val sSimilar = JSONObject.quote(discoveryScriptFn("US30", "{}"))
+        val sExecTrade = JSONObject.quote(tradeScriptFn("EURUSD", "BUY", 1))
+        val sAuthTrade = JSONObject.quote(tradeScriptFn("EURUSD", "BUY", 1))
+        val sCancelTarget = JSONObject.quote(discoveryScriptFn("XAUUSD.m", "{}"))
+        val sCancelExec = JSONObject.quote(cancelScript)
+
+        return """
+        (async function() {
+          function buildMt4Dom(options) {
+            options = options || {};
+            const doc = createDomDocument();
+            const stats = {
+              mt5SearchTouched: false,
+              showAllClicked: false,
+              doubleClickedSymbol: '',
+              buyClicks: 0,
+              sellClicks: 0,
+              authRequiredCalls: 0,
+              logs: [],
+              phases: [],
+              discoveredEvents: []
+            };
+
+            if (options.loggedOut) {
+              const loginForm = doc.createElement('div');
+              const pwd = doc.createElement('input');
+              pwd.type = 'password';
+              loginForm.appendChild(pwd);
+              doc.body.appendChild(loginForm);
+            } else {
+              const header = doc.createElement('div');
+              header.textContent = 'Balance: 5,000.00 USD Equity: 5,000.00 USD New Order Positions';
+              doc.body.appendChild(header);
+            }
+
+            // Trap MT5 search field to guarantee MT4 discovery NEVER falls back to searching here
+            const mt5Trap = doc.createElement('input');
+            mt5Trap.setAttribute('placeholder', 'Search symbol');
+            mt5Trap.addEventListener('input', function() { stats.mt5SearchTouched = true; });
+            doc.body.appendChild(mt5Trap);
+
+            const mw = doc.createElement('div');
+            mw.className = 'market-watch-panel';
+            const mwTitle = doc.createElement('div');
+            mwTitle.textContent = 'Market Watch';
+            mw.appendChild(mwTitle);
+
+            const initialSymbols = options.initialSymbols || ['EURUSD', 'USDJPY', 'US500', 'EURJPY'];
+            const allSymbols = options.allSymbols || [
+              'EURUSD', 'USDJPY', 'US500', 'EURJPY', 'XAUUSD.m', 'GBPUSD.ecn',
+              'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF', 'BTCUSD', 'ETHUSD', 'XAGUSD', 'GER40'
+            ];
+
+            function renderRows(list) {
+              const existing = mw.querySelectorAll('.mw-row');
+              existing.forEach(function(n) { mw.removeChild(n); });
+              list.forEach(function(sym) {
+                const row = doc.createElement('tr');
+                row.className = 'mw-row';
+                row.setAttribute('data-symbol', sym);
+                const cell = doc.createElement('td');
+                cell.textContent = sym + ' 1.1050 1.1052';
+                row.appendChild(cell);
+                row.addEventListener('dblclick', function() {
+                  stats.doubleClickedSymbol = sym;
+                  openOrderTicket(sym);
+                });
+                mw.appendChild(row);
+              });
+            }
+            renderRows(initialSymbols);
+
+            // Context menu opens on right-click (Show All is placed at index 1, NOT index 6!)
+            mw.addEventListener('contextmenu', function() {
+              if (mw.querySelectorAll('.mt4-ctx-menu').length > 0) return;
+              const menu = doc.createElement('div');
+              menu.className = 'mt4-ctx-menu';
+              const items = ['New Order', 'Show All', 'Hide All', 'Chart Window', 'Tick Chart'];
+              items.forEach(function(lbl) {
+                const mi = doc.createElement('div');
+                mi.setAttribute('role', 'menuitem');
+                mi.textContent = lbl;
+                if (lbl === 'Show All') {
+                  mi.addEventListener('click', function() {
+                    stats.showAllClicked = true;
+                    setTimeout(function() { renderRows(allSymbols); }, 20);
+                  });
+                }
+                menu.appendChild(mi);
+              });
+              doc.body.appendChild(menu);
+            });
+            doc.body.appendChild(mw);
+
+            let ticketEl = null;
+            function openOrderTicket(sym) {
+              if (ticketEl && ticketEl.parentElement) ticketEl.parentElement.removeChild(ticketEl);
+              ticketEl = doc.createElement('div');
+              ticketEl.setAttribute('role', 'dialog');
+              ticketEl.className = 'mt4-order-ticket';
+
+              const symTitle = doc.createElement('h2');
+              symTitle.setAttribute('data-symbol', sym);
+              symTitle.textContent = sym;
+              ticketEl.appendChild(symTitle);
+
+              const volInput = doc.createElement('input');
+              volInput.name = 'volume';
+              volInput.placeholder = 'Volume';
+              ticketEl.appendChild(volInput);
+
+              const slInput = doc.createElement('input');
+              slInput.name = 'sl';
+              slInput.placeholder = 'Stop Loss';
+              ticketEl.appendChild(slInput);
+
+              const tpInput = doc.createElement('input');
+              tpInput.name = 'tp';
+              tpInput.placeholder = 'Take Profit';
+              ticketEl.appendChild(tpInput);
+
+              const cmtInput = doc.createElement('input');
+              cmtInput.name = 'comment';
+              cmtInput.placeholder = 'Comment';
+              ticketEl.appendChild(cmtInput);
+
+              const btnRow = doc.createElement('div');
+              const sellBtn = doc.createElement('button');
+              sellBtn.textContent = 'Sell by Market';
+              sellBtn.addEventListener('click', function() { stats.sellClicks++; });
+              const buyBtn = doc.createElement('button');
+              buyBtn.textContent = 'Buy by Market';
+              buyBtn.addEventListener('click', function() {
+                stats.buyClicks++;
+                const posRow = doc.createElement('tr');
+                posRow.textContent = '#800100' + stats.buyClicks + ' buy ' + (volInput.value || '0.02') + ' ' + sym + ' at 1.1052';
+                doc.body.appendChild(posRow);
+              });
+              btnRow.appendChild(sellBtn);
+              btnRow.appendChild(buyBtn);
+              ticketEl.appendChild(btnRow);
+
+              doc.body.appendChild(ticketEl);
+            }
+
+            installDoc(doc);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() { stats.authRequiredCalls++; },
+              onTradePhase: function(k, d) { stats.phases.push({ k: k, d: d }); },
+              onTradeLog: function(m, err, done) { stats.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function(json) { stats.discoveredEvents.push(JSON.parse(json)); }
+            };
+            return stats;
+          }
+
+          // 1. Exact visible match
+          let st = buildMt4Dom();
+          eval($sExact);
+          let res = await window.__btechLastDiscoveryPromise;
+          const exactMatchOk = res.success && res.actualSymbol === 'EURUSD' && st.doubleClickedSymbol === 'EURUSD' && !st.mt5SearchTouched;
+
+          // 2-6. Hidden symbol -> Show All by text (not hardcoded 7th item) -> case-insensitive .m -> catalog > 8
+          st = buildMt4Dom();
+          eval($sCase);
+          res = await window.__btechLastDiscoveryPromise;
+          const caseInsensitiveOk = res.success && res.actualSymbol === 'XAUUSD.m';
+          const showAllByTextNotIndex7Ok = st.showAllClicked === true;
+          const catalogExceeds8SymbolsOk = Array.isArray(res.discoveredSymbols) && res.discoveredSymbols.length >= 12;
+
+          // 3. Exact suffix .m when requesting XAUUSD.m
+          st = buildMt4Dom();
+          eval($sDotM);
+          res = await window.__btechLastDiscoveryPromise;
+          const suffixDotMOk = res.success && res.actualSymbol === 'XAUUSD.m' && !st.mt5SearchTouched;
+
+          // 4. Exact suffix .ecn when requesting GBPUSD.ecn
+          st = buildMt4Dom();
+          eval($sDotEcn);
+          res = await window.__btechLastDiscoveryPromise;
+          const suffixDotEcnOk = res.success && res.actualSymbol === 'GBPUSD.ecn';
+
+          // 4b. Requesting XAUUSD or GBPUSD when Market Watch only has XAUUSD.m / GBPUSD.ecn MUST reject cleanly!
+          st = buildMt4Dom();
+          eval($sUnmatchedXau);
+          const rUnmXau = await window.__btechLastDiscoveryPromise;
+          st = buildMt4Dom();
+          eval($sUnmatchedGbp);
+          const rUnmGbp = await window.__btechLastDiscoveryPromise;
+          const unmatchedSuffixRejectedOk =
+            !rUnmXau.success &&
+            String(rUnmXau.error).indexOf('error:Symbol XAUUSD not found') >= 0 &&
+            !rUnmGbp.success &&
+            String(rUnmGbp.error).indexOf('error:Symbol GBPUSD not found') >= 0;
+
+          // 8. Missing symbol fails cleanly
+          st = buildMt4Dom();
+          eval($sMissing);
+          res = await window.__btechLastDiscoveryPromise;
+          const missingSymbolFailedCleanly = !res.success && String(res.error).indexOf('error:Symbol NONEXIST99 not found') >= 0;
+
+          // 9. Similar-looking different symbol (US30 vs US500) must NOT match
+          st = buildMt4Dom();
+          eval($sSimilar);
+          res = await window.__btechLastDiscoveryPromise;
+          const similarDifferentRejected = !res.success && !st.mt5SearchTouched;
+          const mt4DidNotTouchMt5Search = !st.mt5SearchTouched;
+
+          // 11. Logged-out session triggers auth bridge instead of trading
+          st = buildMt4Dom({ loggedOut: true });
+          eval($sAuthTrade);
+          await sleepMs(120);
+          const authLostTriggersBridge = st.authRequiredCalls === 1 && st.buyClicks === 0;
+
+          // 12. Stop / Cancel aborts mid-discovery
+          st = buildMt4Dom();
+          eval($sCancelTarget);
+          setTimeout(function() { eval($sCancelExec); }, 20);
+          res = await window.__btechLastDiscoveryPromise;
+          const cancelAbortsMidDiscovery = res.cancelled === true && st.doubleClickedSymbol === '';
+
+          // 13. Full MT4 mock execution verifies ticket + fields, clicks Buy by Market ONCE, confirms ticket, emits DONE
+          st = buildMt4Dom();
+          eval($sExecTrade);
+          for (let w = 0; w < 80 && !st.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(50);
+          }
+          const mt4MockOrderExecutedOnceAndConfirmed =
+            st.doubleClickedSymbol === 'EURUSD' &&
+            st.buyClicks === 1 &&
+            st.sellClicks === 0 &&
+            st.phases.some(function(p) { return p.k === 'DONE'; }) &&
+            st.logs.some(function(l) { return l.done && !l.err && l.m.indexOf('#8001001') >= 0; });
+
+          console.log(JSON.stringify({
+            ok: true,
+            exactMatchOk: exactMatchOk,
+            caseInsensitiveOk: caseInsensitiveOk,
+            showAllByTextNotIndex7Ok: showAllByTextNotIndex7Ok,
+            mt4DidNotTouchMt5Search: mt4DidNotTouchMt5Search,
+            suffixDotMOk: suffixDotMOk,
+            suffixDotEcnOk: suffixDotEcnOk,
+            unmatchedSuffixRejectedOk: unmatchedSuffixRejectedOk,
+            catalogExceeds8SymbolsOk: catalogExceeds8SymbolsOk,
+            missingSymbolFailedCleanly: missingSymbolFailedCleanly,
+            similarDifferentRejected: similarDifferentRejected,
+            authLostTriggersBridge: authLostTriggersBridge,
+            cancelAbortsMidDiscovery: cancelAbortsMidDiscovery,
+            mt4MockOrderExecutedOnceAndConfirmed: mt4MockOrderExecutedOnceAndConfirmed,
+            executedBuyClicks: st.buyClicks,
+            executedSellClicks: st.sellClicks
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+    }
+
+    private fun buildMt5SuiteJs(
+        discoveryScriptFn: (sym: String, aliasesJson: String) -> String,
+        tradeScriptFn: (sym: String, dir: String, count: Int, aliasesJson: String) -> String,
+        cancelScript: String,
+    ): String {
+        val sExact = JSONObject.quote(discoveryScriptFn("EURUSD", "{}"))
+        val sCase = JSONObject.quote(discoveryScriptFn("eurusd.ecn", "{}"))
+        val sHidden = JSONObject.quote(discoveryScriptFn("CADJPY", "{}"))
+        val sDotM = JSONObject.quote(discoveryScriptFn("XAUUSD.m", "{}"))
+        val sDotEcn = JSONObject.quote(discoveryScriptFn("EURUSD.ecn", "{}"))
+        val sUnmatchedXau = JSONObject.quote(discoveryScriptFn("XAUUSD", "{}"))
+        val sUnmatchedEur = JSONObject.quote(discoveryScriptFn("EURUSD", "{}"))
+        val sMissing = JSONObject.quote(discoveryScriptFn("NONEXIST99", "{}"))
+        val sSimilar = JSONObject.quote(discoveryScriptFn("EURUSD", "{}"))
+        val sGoldNoAlias = JSONObject.quote(discoveryScriptFn("GOLD", "{}"))
+        val sGoldWithAlias = JSONObject.quote(discoveryScriptFn("GOLD", """{"GOLD":"XAUUSD"}"""))
+        val sExecTrade = JSONObject.quote(tradeScriptFn("XAUUSD.m", "BUY", 1, "{}"))
+        val sForeignMismatchTrade = JSONObject.quote(tradeScriptFn("XAUUSD.m", "BUY", 1, "{}"))
+        val sAuthTrade = JSONObject.quote(tradeScriptFn("XAUUSD.m", "BUY", 1, "{}"))
+        val sCancelLiveLoop = JSONObject.quote(tradeScriptFn("XAUUSD.m", "BUY", 2, "{}"))
+        val sCancelExec = JSONObject.quote(cancelScript)
+
+        return """
+        (async function() {
+          function buildMt5Dom(options) {
+            options = options || {};
+            const doc = createDomDocument();
+            const stats = {
+              clickedSymbol: '',
+              buyClicks: 0,
+              sellClicks: 0,
+              authRequiredCalls: 0,
+              logs: [],
+              phases: [],
+              discoveredEvents: [],
+              filledLot: '',
+              filledSl: '',
+              filledTp: '',
+              filledComment: ''
+            };
+
+            if (options.loggedOut) {
+              const pwd = doc.createElement('input');
+              pwd.type = 'password';
+              doc.body.appendChild(pwd);
+            } else {
+              const ws = doc.createElement('div');
+              ws.textContent = 'Balance: 10,000.00 USD Equity: 10,000.00 USD Positions';
+              doc.body.appendChild(ws);
+            }
+
+            const catalog = options.catalog || [
+              'EURUSD', 'EURUSD.ecn', 'XAUUSD.m', 'GBPUSD', 'USDJPY',
+              'EURJPY', 'CADJPY', 'AUDUSD', 'NZDUSD', 'BTCUSD', 'ETHUSD', 'US500'
+            ];
+            let queryText = '';
+
+            const searchBox = doc.createElement('input');
+            searchBox.setAttribute('placeholder', 'Search symbol');
+            const resultsPane = doc.createElement('div');
+            resultsPane.className = 'mt5-search-results';
+
+            function renderResults() {
+              const prev = resultsPane.querySelectorAll('.symbol-row');
+              prev.forEach(function(n) { resultsPane.removeChild(n); });
+              const list = queryText
+                ? catalog.filter(function(s) { return s.toLowerCase().indexOf(queryText.toLowerCase()) >= 0; })
+                : (options.initialVisible || ['GBPUSD', 'USDJPY']);
+              list.forEach(function(sym) {
+                const row = doc.createElement('div');
+                row.className = 'symbol-row';
+                row.setAttribute('role', 'row');
+                row.setAttribute('data-symbol', sym);
+                row.textContent = sym;
+                row.addEventListener('click', function() {
+                  stats.clickedSymbol = sym;
+                  renderOrderForm(options.forceForeignTicketSymbol || sym);
+                });
+                resultsPane.appendChild(row);
+              });
+            }
+
+            searchBox.addEventListener('input', function() {
+              queryText = searchBox.value || '';
+              renderResults();
+            });
+
+            doc.body.appendChild(searchBox);
+            doc.body.appendChild(resultsPane);
+            renderResults();
+
+            let orderPanel = null;
+            function renderOrderForm(ticketSym) {
+              if (orderPanel && orderPanel.parentElement) orderPanel.parentElement.removeChild(orderPanel);
+              orderPanel = doc.createElement('div');
+              orderPanel.className = 'trade-form';
+
+              const hdr = doc.createElement('div');
+              hdr.className = 'order-symbol-header';
+              hdr.setAttribute('data-symbol', ticketSym);
+              hdr.textContent = ticketSym;
+              orderPanel.appendChild(hdr);
+
+              const volWrap = doc.createElement('div');
+              volWrap.className = 'trade-input';
+              const volInput = doc.createElement('input');
+              volInput.className = 'trade-input';
+              volInput.name = 'volume';
+              volInput.addEventListener('input', function() { stats.filledLot = volInput.value; });
+              volWrap.appendChild(volInput);
+              orderPanel.appendChild(volWrap);
+
+              const slInput = doc.createElement('input');
+              slInput.placeholder = 'SL';
+              slInput.addEventListener('input', function() { stats.filledSl = slInput.value; });
+              orderPanel.appendChild(slInput);
+
+              const tpInput = doc.createElement('input');
+              tpInput.placeholder = 'TP';
+              tpInput.addEventListener('input', function() { stats.filledTp = tpInput.value; });
+              orderPanel.appendChild(tpInput);
+
+              const cmtInput = doc.createElement('input');
+              cmtInput.placeholder = 'Comment';
+              cmtInput.addEventListener('input', function() { stats.filledComment = cmtInput.value; });
+              orderPanel.appendChild(cmtInput);
+
+              const btnBar = doc.createElement('div');
+              const sellBtn = doc.createElement('button');
+              sellBtn.textContent = 'Sell';
+              sellBtn.addEventListener('click', function() { stats.sellClicks++; });
+              const buyBtn = doc.createElement('button');
+              buyBtn.textContent = 'Buy';
+              buyBtn.addEventListener('click', function() {
+                stats.buyClicks++;
+                stats.buyClickTimestamps = stats.buyClickTimestamps || [];
+                stats.buyClickTimestamps.push(Date.now());
+                const posRow = doc.createElement('tr');
+                posRow.textContent = '#900100' + stats.buyClicks + ' buy ' + (volInput.value || '0.03') + ' ' + ticketSym + ' at 2655.10';
+                doc.body.appendChild(posRow);
+              });
+              btnBar.appendChild(sellBtn);
+              btnBar.appendChild(buyBtn);
+              orderPanel.appendChild(btnBar);
+
+              doc.body.appendChild(orderPanel);
+            }
+
+            installDoc(doc);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() { stats.authRequiredCalls++; },
+              onTradePhase: function(k, d) { stats.phases.push({ k: k, d: d }); },
+              onTradeLog: function(m, err, done) { stats.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function(json) { stats.discoveredEvents.push(JSON.parse(json)); }
+            };
+            return stats;
+          }
+
+          // 1. Exact search + click result (MUST NOT complete trade just from search click)
+          let st = buildMt5Dom();
+          eval($sExact);
+          let res = await window.__btechLastDiscoveryPromise;
+          const exactSearchAndClickOk = res.success && res.actualSymbol === 'EURUSD' && st.clickedSymbol === 'EURUSD';
+          const searchClickAloneDidNotCompleteTrade = st.buyClicks === 0 && st.sellClicks === 0;
+
+          // 2. Case-insensitive
+          st = buildMt5Dom({ catalog: ['EURUSD.ecn', 'XAUUSD.m'] });
+          eval($sCase);
+          res = await window.__btechLastDiscoveryPromise;
+          const caseInsensitiveSearchOk = res.success && res.actualSymbol === 'EURUSD.ecn';
+
+          // 5. Available symbol hidden from default list until searched
+          st = buildMt5Dom({ initialVisible: ['GBPUSD'] });
+          eval($sHidden);
+          res = await window.__btechLastDiscoveryPromise;
+          const hiddenUntilSearchedOk = res.success && res.actualSymbol === 'CADJPY' && st.clickedSymbol === 'CADJPY';
+
+          // 3. Exact suffix .m when requesting XAUUSD.m
+          st = buildMt5Dom({ catalog: ['XAUUSD.m', 'EURJPY'] });
+          eval($sDotM);
+          res = await window.__btechLastDiscoveryPromise;
+          const suffixDotMOk = res.success && res.actualSymbol === 'XAUUSD.m';
+
+          // 4. Exact suffix .ecn when requesting EURUSD.ecn
+          st = buildMt5Dom({ catalog: ['EURUSD.ecn', 'EURJPY'] });
+          eval($sDotEcn);
+          res = await window.__btechLastDiscoveryPromise;
+          const suffixDotEcnOk = res.success && res.actualSymbol === 'EURUSD.ecn';
+
+          // 4b. Unmatched suffix: requesting XAUUSD when broker only has XAUUSD.m or EURUSD when broker only has EURUSD.ecn MUST reject cleanly!
+          st = buildMt5Dom({ catalog: ['XAUUSD.m', 'EURJPY'] });
+          eval($sUnmatchedXau);
+          const unmXau5 = await window.__btechLastDiscoveryPromise;
+          st = buildMt5Dom({ catalog: ['EURUSD.ecn', 'EURJPY'] });
+          eval($sUnmatchedEur);
+          const unmEur5 = await window.__btechLastDiscoveryPromise;
+          const unmatchedSuffixRejectedOk =
+            !unmXau5.success &&
+            String(unmXau5.error).indexOf('error:Symbol XAUUSD not found') >= 0 &&
+            !unmEur5.success &&
+            String(unmEur5.error).indexOf('error:Symbol EURUSD not found') >= 0;
+
+          // 8. Missing symbol explicit error
+          st = buildMt5Dom();
+          eval($sMissing);
+          res = await window.__btechLastDiscoveryPromise;
+          const missingSymbolFailedCleanly = !res.success && String(res.error).indexOf('error:Symbol NONEXIST99 not found') >= 0;
+
+          // 9. Similar different symbol rejected (EURUSD when only EURJPY offered)
+          st = buildMt5Dom({ catalog: ['EURJPY', 'GBPJPY'], initialVisible: ['EURJPY'] });
+          eval($sSimilar);
+          res = await window.__btechLastDiscoveryPromise;
+          const similarDifferentRejected = !res.success && st.clickedSymbol === '';
+
+          // 9b. GOLD does NOT blindly match XAUUSD without verified alias; resolves ONLY with verified alias
+          st = buildMt5Dom({ catalog: ['XAUUSD', 'XAGUSD'] });
+          eval($sGoldNoAlias);
+          res = await window.__btechLastDiscoveryPromise;
+          const goldNotBlindlyXauUsd = !res.success;
+
+          st = buildMt5Dom({ catalog: ['XAUUSD', 'XAGUSD'] });
+          eval($sGoldWithAlias);
+          res = await window.__btechLastDiscoveryPromise;
+          const goldWithVerifiedAliasOk = res.success && res.actualSymbol === 'XAUUSD' && res.matchType === 'VERIFIED_ALIAS';
+
+          // Pre-order ticket mismatch check: if ticket opened for EURJPY instead of XAUUSD.m, abort with 0 Buy clicks!
+          st = buildMt5Dom({ catalog: ['XAUUSD.m'], forceForeignTicketSymbol: 'EURJPY' });
+          eval($sForeignMismatchTrade);
+          for (let w = 0; w < 60 && !st.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(50);
+          }
+          const orderFormMismatchRejected =
+            st.buyClicks === 0 &&
+            st.logs.some(function(l) { return l.err && l.done && l.m.indexOf('Order form instrument mismatch') >= 0; });
+
+          // 11. Auth lost -> onTradeRequiresAuth
+          st = buildMt5Dom({ loggedOut: true });
+          eval($sAuthTrade);
+          for (let w = 0; w < 30 && st.authRequiredCalls === 0; w++) {
+            await sleepMs(25);
+          }
+          const authLostTriggersBridge = st.authRequiredCalls === 1 && st.buyClicks === 0;
+
+          // 12. Live 2-trade loop cancelled immediately after Trade 1 submits stops Trade 2 across full 2s window
+          st = buildMt5Dom({ catalog: ['XAUUSD.m'] });
+          eval($sCancelLiveLoop);
+          for (let w = 0; w < 80 && st.buyClicks < 1; w++) {
+            await sleepMs(25);
+          }
+          eval($sCancelExec);
+          await sleepMs(2400);
+          const cancelStopsTrade2BeforeSubmit = st.buyClicks === 1;
+
+          // 12b. Multi-trade execution (2 trades) enforces 2s (2000ms) delay between Trade 1 confirmation and Trade 2 submit
+          st = buildMt5Dom({ catalog: ['XAUUSD.m'] });
+          eval($sCancelLiveLoop);
+          for (let w = 0; w < 140 && !st.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(50);
+          }
+          const twoSecondDelayBetweenTradesOk =
+            st.buyClicks === 2 &&
+            st.buyClickTimestamps &&
+            st.buyClickTimestamps.length === 2 &&
+            (st.buyClickTimestamps[1] - st.buyClickTimestamps[0]) >= 2000;
+
+          // 13. Full MT5 execution with .trade-input + split Buy/Sell populates fields, clicks Buy ONCE, confirms ticket, emits DONE
+          st = buildMt5Dom({ catalog: ['XAUUSD.m'] });
+          eval($sExecTrade);
+          for (let w = 0; w < 80 && !st.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(50);
+          }
+          const mt5TradeInputVerifiedAndExecutedOnce =
+            st.clickedSymbol === 'XAUUSD.m' &&
+            st.filledLot === '0.03' &&
+            st.filledSl === '1.0800' &&
+            st.filledTp === '1.0950' &&
+            st.filledComment === 'BTECH-MT5' &&
+            st.buyClicks === 1 &&
+            st.sellClicks === 0 &&
+            st.phases.some(function(p) { return p.k === 'DONE'; }) &&
+            st.logs.some(function(l) { return l.done && !l.err && l.m.indexOf('#9001001') >= 0; });
+
+          console.log(JSON.stringify({
+            ok: true,
+            exactSearchAndClickOk: exactSearchAndClickOk,
+            caseInsensitiveSearchOk: caseInsensitiveSearchOk,
+            hiddenUntilSearchedOk: hiddenUntilSearchedOk,
+            suffixDotMOk: suffixDotMOk,
+            suffixDotEcnOk: suffixDotEcnOk,
+            unmatchedSuffixRejectedOk: unmatchedSuffixRejectedOk,
+            searchClickAloneDidNotCompleteTrade: searchClickAloneDidNotCompleteTrade,
+            missingSymbolFailedCleanly: missingSymbolFailedCleanly,
+            similarDifferentRejected: similarDifferentRejected,
+            goldNotBlindlyXauUsd: goldNotBlindlyXauUsd,
+            goldWithVerifiedAliasOk: goldWithVerifiedAliasOk,
+            orderFormMismatchRejected: orderFormMismatchRejected,
+            authLostTriggersBridge: authLostTriggersBridge,
+            cancelStopsTrade2BeforeSubmit: cancelStopsTrade2BeforeSubmit,
+            twoSecondDelayBetweenTradesOk: twoSecondDelayBetweenTradesOk,
+            mt5TradeInputVerifiedAndExecutedOnce: mt5TradeInputVerifiedAndExecutedOnce,
+            executedBuyClicks: st.buyClicks
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+    }
+
+    companion object {
+        private val NODE_DOM_SHIM = """
+        'use strict';
+
+        function sleepMs(ms) {
+          return new Promise(function(r) { setTimeout(r, ms); });
+        }
+
+        class ShimEvent {
+          constructor(type, opts) {
+            this.type = String(type || '');
+            opts = opts || {};
+            this.bubbles = !!opts.bubbles;
+            this.cancelable = !!opts.cancelable;
+            this.composed = !!opts.composed;
+            this.defaultPrevented = false;
+            this.target = null;
+            this.currentTarget = null;
+          }
+          preventDefault() { this.defaultPrevented = true; }
+          stopPropagation() {}
+        }
+
+        class ShimMouseEvent extends ShimEvent {
+          constructor(type, opts) {
+            super(type, opts);
+            opts = opts || {};
+            this.button = opts.button || 0;
+            this.buttons = opts.buttons || 0;
+            this.clientX = opts.clientX || 0;
+            this.clientY = opts.clientY || 0;
+          }
+        }
+
+        class ShimKeyboardEvent extends ShimEvent {
+          constructor(type, opts) {
+            super(type, opts);
+            opts = opts || {};
+            this.key = opts.key || '';
+            this.code = opts.code || '';
+            this.keyCode = opts.keyCode || 0;
+            this.which = opts.which || 0;
+          }
+        }
+
+        class ShimInputEvent extends ShimEvent {
+          constructor(type, opts) {
+            super(type, opts);
+            opts = opts || {};
+            this.data = opts.data !== undefined ? opts.data : null;
+            this.inputType = opts.inputType || '';
+          }
+        }
+
+        function splitSelectors(sel) {
+          const out = [];
+          let cur = '';
+          let inQuote = null;
+          let depth = 0;
+          for (let i = 0; i < sel.length; i++) {
+            const ch = sel[i];
+            if ((ch === "'" || ch === '"') && sel[i - 1] !== '\\') {
+              if (inQuote === ch) inQuote = null;
+              else if (!inQuote) inQuote = ch;
+            } else if (!inQuote) {
+              if (ch === '[') depth++;
+              else if (ch === ']') depth = Math.max(0, depth - 1);
+              else if (ch === ',' && depth === 0) {
+                if (cur.trim()) out.push(cur.trim());
+                cur = '';
+                continue;
+              }
+            }
+            cur += ch;
+          }
+          if (cur.trim()) out.push(cur.trim());
+          return out;
+        }
+
+        function matchesSinglePart(el, part) {
+          if (!el || !el.tagName) return false;
+          let p = part.trim();
+          if (!p) return false;
+
+          // descendant combinator support ("A B")
+          const tokens = p.match(/(?:[^\s\[]+|\[[^\]]*\])+/g) || [p];
+          if (tokens.length > 1) {
+            if (!matchesCompound(el, tokens[tokens.length - 1])) return false;
+            let ancestor = el.parentElement;
+            let idx = tokens.length - 2;
+            while (ancestor && idx >= 0) {
+              if (matchesCompound(ancestor, tokens[idx])) idx--;
+              ancestor = ancestor.parentElement;
+            }
+            return idx < 0;
+          }
+          return matchesCompound(el, tokens[0]);
+        }
+
+        function matchesCompound(el, token) {
+          if (!el || !el.tagName) return false;
+          let rem = token;
+          const attrRe = /\[([^\]]+)\]/g;
+          let m;
+          const attrs = [];
+          while ((m = attrRe.exec(token)) !== null) {
+            attrs.push(m[1]);
+          }
+          rem = rem.replace(attrRe, '');
+
+          // Check :disabled pseudo-class
+          const hasDisabledPseudo = /:disabled$/.test(rem);
+          if (hasDisabledPseudo) {
+            rem = rem.replace(/:disabled$/, '');
+            if (!el.disabled) return false;
+          }
+
+          // Check universal '*', tag, #id, .class
+          if (rem.startsWith('*')) {
+            rem = rem.slice(1);
+          } else {
+            const tagMatch = rem.match(/^[a-zA-Z0-9_-]+/);
+            if (tagMatch) {
+              if (el.tagName.toUpperCase() !== tagMatch[0].toUpperCase()) return false;
+              rem = rem.slice(tagMatch[0].length);
+            }
+          }
+          while (rem.length > 0) {
+            if (rem[0] === '.') {
+              rem = rem.slice(1);
+              const cm = rem.match(/^[a-zA-Z0-9_-]+/);
+              if (!cm) return false;
+              const clsList = String(el.className || '').split(/\s+/);
+              if (clsList.indexOf(cm[0]) < 0) return false;
+              rem = rem.slice(cm[0].length);
+            } else if (rem[0] === '#') {
+              rem = rem.slice(1);
+              const im = rem.match(/^[a-zA-Z0-9_-]+/);
+              if (!im) return false;
+              if (el.id !== im[0]) return false;
+              rem = rem.slice(im[0].length);
+            } else {
+              return false;
+            }
+          }
+
+          for (let i = 0; i < attrs.length; i++) {
+            const spec = attrs[i].trim();
+            const am = spec.match(/^([a-zA-Z0-9_-]+)\s*(\*?=)?\s*(?:(['"])(.*?)\3\s*(i)?)?$/);
+            if (!am) continue;
+            const attrName = am[1];
+            const op = am[2] || '';
+            const expected = am[4] !== undefined ? am[4] : '';
+            const ci = !!am[5];
+            let actual = el.getAttribute(attrName);
+            if (actual === null || actual === undefined) return false;
+            if (!op) continue;
+            if (ci) {
+              actual = actual.toLowerCase();
+              const expL = expected.toLowerCase();
+              if (op === '*=') { if (actual.indexOf(expL) < 0) return false; }
+              else if (actual !== expL) return false;
+            } else {
+              if (op === '*=') { if (actual.indexOf(expected) < 0) return false; }
+              else if (actual !== expected) return false;
+            }
+          }
+          return true;
+        }
+
+        function matchesSelector(el, selector) {
+          const parts = splitSelectors(selector);
+          for (let i = 0; i < parts.length; i++) {
+            if (matchesSinglePart(el, parts[i])) return true;
+          }
+          return false;
+        }
+
+        class ShimElement {
+          constructor(tagName, ownerDocument) {
+            this.tagName = String(tagName || 'DIV').toUpperCase();
+            this.nodeType = 1;
+            this.ownerDocument = ownerDocument;
+            this.children = [];
+            this.parentElement = null;
+            this.attributes = {};
+            this.style = { display: '', visibility: '', opacity: '1', cursor: 'pointer', backgroundColor: 'rgb(30,30,30)' };
+            this._listeners = {};
+            this._text = '';
+            this._value = '';
+            this.disabled = false;
+            this.shadowRoot = null;
+            this.options = [];
+            this.selectedIndex = 0;
+          }
+          get parentNode() { return this.parentElement; }
+          get previousElementSibling() {
+            if (!this.parentElement) return null;
+            const idx = this.parentElement.children.indexOf(this);
+            return idx > 0 ? this.parentElement.children[idx - 1] : null;
+          }
+          get classList() {
+            const self = this;
+            return {
+              contains: function(c) { return String(self.className || '').split(/\s+/).indexOf(c) >= 0; }
+            };
+          }
+          matches(sel) { return matchesSelector(this, sel); }
+          get isConnected() {
+            let cur = this;
+            while (cur) {
+              if (cur === this.ownerDocument.documentElement || cur === this.ownerDocument.body) return true;
+              cur = cur.parentElement;
+            }
+            return false;
+          }
+          get id() { return this.attributes['id'] || ''; }
+          set id(v) { this.attributes['id'] = String(v); }
+          get className() { return this.attributes['class'] || ''; }
+          set className(v) { this.attributes['class'] = String(v); }
+          get name() { return this.attributes['name'] || ''; }
+          set name(v) { this.attributes['name'] = String(v); }
+          get type() { return this.attributes['type'] || (this.tagName === 'INPUT' ? 'text' : ''); }
+          set type(v) { this.attributes['type'] = String(v); }
+          get placeholder() { return this.attributes['placeholder'] || ''; }
+          set placeholder(v) { this.attributes['placeholder'] = String(v); }
+          get value() { return this._value; }
+          set value(v) { this._value = String(v === undefined || v === null ? '' : v); }
+          get textContent() {
+            if (this.children.length === 0) return this._text;
+            return (this._text ? this._text + ' ' : '') + this.children.map(function(c) { return c.textContent; }).join(' ');
+          }
+          set textContent(v) {
+            this._text = String(v || '');
+            this.children = [];
+          }
+          get innerText() { return this.textContent; }
+          set innerText(v) { this.textContent = v; }
+          setAttribute(k, v) { this.attributes[String(k).toLowerCase()] = String(v); }
+          getAttribute(k) {
+            const key = String(k).toLowerCase();
+            return Object.prototype.hasOwnProperty.call(this.attributes, key) ? this.attributes[key] : null;
+          }
+          appendChild(child) {
+            child.parentElement = this;
+            this.children.push(child);
+            if (this.tagName === 'SELECT' && child.tagName === 'OPTION') {
+              this.options.push(child);
+            }
+            return child;
+          }
+          removeChild(child) {
+            const idx = this.children.indexOf(child);
+            if (idx >= 0) {
+              this.children.splice(idx, 1);
+              child.parentElement = null;
+            }
+            return child;
+          }
+          querySelectorAll(sel) {
+            const out = [];
+            function walk(node) {
+              for (let i = 0; i < node.children.length; i++) {
+                const c = node.children[i];
+                if (matchesSelector(c, sel)) out.push(c);
+                walk(c);
+              }
+            }
+            walk(this);
+            return out;
+          }
+          querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+          getElementsByTagName(tag) {
+            return this.querySelectorAll(tag === '*' ? 'div,span,tr,td,th,button,input,select,option,h1,h2,h3,a,li,p' : tag);
+          }
+          closest(sel) {
+            let cur = this;
+            while (cur) {
+              if (matchesSelector(cur, sel)) return cur;
+              cur = cur.parentElement;
+            }
+            return null;
+          }
+          addEventListener(type, fn) {
+            const key = String(type);
+            this._listeners[key] = this._listeners[key] || [];
+            this._listeners[key].push(fn);
+          }
+          dispatchEvent(ev) {
+            if (!ev.target) ev.target = this;
+            let cur = this;
+            while (cur) {
+              ev.currentTarget = cur;
+              const list = (cur._listeners[ev.type] || []).slice();
+              for (let i = 0; i < list.length; i++) {
+                list[i].call(cur, ev);
+              }
+              if (!ev.bubbles) break;
+              cur = cur.parentElement;
+            }
+            return !ev.defaultPrevented;
+          }
+          click() {
+            this.dispatchEvent(new ShimMouseEvent('click', { bubbles: true, cancelable: true }));
+          }
+          focus() {}
+          select() {}
+          getBoundingClientRect() {
+            if (!this.isConnected || this.style.display === 'none' || this.style.visibility === 'hidden') {
+              return { left: 0, top: 0, width: 0, height: 0, bottom: 0, right: 0 };
+            }
+            let top = 20;
+            if (this.tagName === 'BUTTON') top = 160;
+            else if (this.tagName === 'INPUT') top = 80;
+            return { left: 10, top: top, width: 120, height: 32, bottom: top + 32, right: 130 };
+          }
+        }
+
+        function createDomDocument() {
+          const doc = {
+            title: 'WebTerminal',
+            readyState: 'complete',
+            createElement: function(tag) { return new ShimElement(tag, doc); },
+            dispatchEvent: function(ev) { return doc.documentElement.dispatchEvent(ev); },
+            querySelectorAll: function(sel) { return doc.documentElement.querySelectorAll(sel); },
+            querySelector: function(sel) { return doc.documentElement.querySelector(sel); },
+            getElementById: function(id) { return doc.documentElement.querySelector('#' + id); },
+            getElementsByTagName: function(tag) { return doc.documentElement.getElementsByTagName(tag); }
+          };
+          doc.documentElement = new ShimElement('HTML', doc);
+          doc.body = new ShimElement('BODY', doc);
+          doc.documentElement.appendChild(doc.body);
+          doc.body.isConnected;
+          return doc;
+        }
+
+        global.window = global;
+        global.self = global;
+        global.innerWidth = 1080;
+        global.innerHeight = 1920;
+        global.location = { href: 'https://web.broker.example/terminal', pathname: '/terminal' };
+        global.Event = ShimEvent;
+        global.MouseEvent = ShimMouseEvent;
+        global.KeyboardEvent = ShimKeyboardEvent;
+        global.InputEvent = ShimInputEvent;
+        global.HTMLInputElement = ShimElement;
+        global.HTMLTextAreaElement = ShimElement;
+        global.HTMLSelectElement = ShimElement;
+        global.Element = ShimElement;
+        global.getComputedStyle = function(el) { return el.style; };
+
+        function installDoc(doc) {
+          global.document = doc;
+        }
+        """.trimIndent()
+    }
+}

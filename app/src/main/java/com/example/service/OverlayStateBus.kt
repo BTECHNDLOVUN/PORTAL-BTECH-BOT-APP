@@ -1,5 +1,6 @@
 package com.example.service
 
+import com.example.model.BrokerTradeResult
 import com.example.model.ExecutionStepLog
 import com.example.model.TradeDirection
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -61,12 +62,15 @@ data class OverlaySnapshot(
     val hasExecutionTracker: Boolean = false,
     val executionFailed: Boolean = false,
     val executionCompleted: Boolean = false,
+    val isDarkTheme: Boolean = false,
+    val lastTradeResult: BrokerTradeResult? = null,
 )
 
 sealed class OverlayActionEvent {
     data object StopBotRequested : OverlayActionEvent()
     data object StopBalanceMonitorRequested : OverlayActionEvent()
     data object RefreshBalanceRequested : OverlayActionEvent()
+    data class SkipTradingChanged(val skipTrading: Boolean) : OverlayActionEvent()
     data class SimulateTradeRequested(
         val symbol: String? = null,
         val direction: TradeDirection = TradeDirection.BUY,
@@ -149,7 +153,34 @@ object OverlayStateBus {
             executionProgress = ExecutionStepId.OPENING_TERMINAL.progress,
             executionHeaderStatus = ExecutionStepId.OPENING_TERMINAL.label,
             executionSteps = initialSteps,
+            lastTradeResult = null,
         )
+    }
+
+    fun recordTradeResult(result: BrokerTradeResult) {
+        _snapshot.value = _snapshot.value.copy(lastTradeResult = result)
+    }
+
+    fun markExecutionUnknown(detail: String) {
+        _snapshot.value = _snapshot.value.let { cur ->
+            val updatedSteps = cur.executionSteps.map { item ->
+                if (item.status == ExecutionStepStatus.ACTIVE || item.status == ExecutionStepStatus.PENDING) {
+                    item.copy(status = ExecutionStepStatus.ERROR, label = "Unconfirmed (UNKNOWN)")
+                } else {
+                    item
+                }
+            }
+            cur.copy(
+                isExecuting = false,
+                statusPill = "UNKNOWN",
+                statusDetail = detail,
+                hasExecutionTracker = true,
+                executionFailed = true,
+                executionCompleted = false,
+                executionHeaderStatus = "Unconfirmed — Not Retried",
+                executionSteps = updatedSteps,
+            )
+        }
     }
 
     fun updateDynamicStep(
@@ -319,14 +350,52 @@ object OverlayStateBus {
         }
     }
 
-    fun toggleSkipTrading() {
+    fun cancelActiveExecution(detail: String, markAsStopped: Boolean = false) {
         _snapshot.value = _snapshot.value.let { cur ->
-            val next = !cur.skipTrading
+            val wasExecuting = cur.isExecuting
+            val updatedSteps = cur.executionSteps.map { item ->
+                if (item.status == ExecutionStepStatus.ACTIVE || item.status == ExecutionStepStatus.PENDING) {
+                    item.copy(status = ExecutionStepStatus.ERROR)
+                } else {
+                    item
+                }
+            }
             cur.copy(
-                skipTrading = next,
-                statusDetail = if (next) "Trade execution paused (Skip Trades active)" else "Listening for signals or simulated trades",
+                isExecuting = false,
+                isRunning = if (markAsStopped) false else cur.isRunning,
+                statusPill = when {
+                    markAsStopped -> "STOPPED"
+                    cur.skipTrading -> "PAUSED"
+                    else -> "CANCELLED"
+                },
+                statusDetail = detail,
+                executionFailed = wasExecuting || cur.executionFailed,
+                executionCompleted = if (wasExecuting) false else cur.executionCompleted,
+                executionHeaderStatus = when {
+                    !cur.hasExecutionTracker || updatedSteps.isEmpty() -> cur.executionHeaderStatus
+                    markAsStopped -> "Stopped"
+                    else -> "Skipped / Cancelled"
+                },
+                executionSteps = updatedSteps,
             )
         }
+    }
+
+    fun toggleSkipTrading() {
+        var nextValue = false
+        _snapshot.value = _snapshot.value.let { cur ->
+            val next = !cur.skipTrading
+            nextValue = next
+            cur.copy(
+                skipTrading = next,
+                statusDetail = if (next) {
+                    "Trade execution paused (Skip Trades active)"
+                } else {
+                    "Listening for signals or simulated trades"
+                },
+            )
+        }
+        _actions.tryEmit(OverlayActionEvent.SkipTradingChanged(nextValue))
     }
 
     fun emitAction(event: OverlayActionEvent) {

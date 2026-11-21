@@ -427,7 +427,12 @@ fun BrokerLoginScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
                 val effectiveUrl = state.customTerminalUrl.ifBlank { resolvedTerminalUrl.orEmpty() }
-                val showGenericOrEmptyWarning = BrokerCatalog.requiresBrokerOwnUrlWarning(state.selectedBroker, effectiveUrl)
+                val urlMismatch = BrokerCatalog.isUrlPlatformMismatch(effectiveUrl, state.selectedPlatform)
+                val showGenericOrEmptyWarning = BrokerCatalog.requiresBrokerOwnUrlWarning(
+                    state.selectedBroker,
+                    effectiveUrl,
+                    state.selectedPlatform,
+                )
 
                 OutlinedTextField(
                     value = state.customTerminalUrl,
@@ -435,8 +440,13 @@ fun BrokerLoginScreen(
                     label = { Text("TERMINAL URL (REQUIRED)") },
                     placeholder = {
                         Text(
-                            if (state.selectedBroker == "JustMarkets") "e.g. https://webtrader.justmarkets.com"
-                            else "https://webtrader.yourbroker.com"
+                            when {
+                                state.selectedBroker == "JustMarkets" && state.selectedPlatform == PlatformType.MT5 ->
+                                    "https://live.justmarkets.com"
+                                state.selectedPlatform == PlatformType.MT4 ->
+                                    "https://metatraderweb.app/trade"
+                                else -> "https://webtrader.yourbroker.com"
+                            }
                         )
                     },
                     singleLine = true,
@@ -449,21 +459,33 @@ fun BrokerLoginScreen(
 
                 if (state.selectedBroker == "JustMarkets") {
                     Spacer(modifier = Modifier.height(6.dp))
+                    val jmTargetUrl = if (state.selectedPlatform == PlatformType.MT5) {
+                        BrokerCatalog.JUSTMARKETS_MT5_URL
+                    } else {
+                        BrokerCatalog.METAQUOTES_MT4_URL
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(
-                            onClick = { onCustomUrlChange(BrokerCatalog.JUSTMARKETS_MT4_WEB_URL) },
+                            onClick = { onCustomUrlChange(jmTargetUrl) },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (state.customTerminalUrl == BrokerCatalog.JUSTMARKETS_MT4_WEB_URL) extra.accentSoft else extra.surface2,
+                                containerColor = if (state.customTerminalUrl == jmTargetUrl) extra.accentSoft else extra.surface2,
                                 contentColor = MaterialTheme.colorScheme.onSurface,
                             ),
                         ) {
-                            Text("Use JustMarkets WebTrader", fontSize = 10.sp)
+                            Text(
+                                if (state.selectedPlatform == PlatformType.MT5) {
+                                    "Use JustMarkets MT5 (live.justmarkets.com)"
+                                } else {
+                                    "Use JustMarkets MT4 (metatraderweb.app)"
+                                },
+                                fontSize = 10.sp,
+                            )
                         }
                     }
                 } else if (state.selectedBroker == "MetaQuotes") {
@@ -498,17 +520,26 @@ fun BrokerLoginScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "Use your broker's own WebTrader URL",
+                                text = if (urlMismatch) {
+                                    "Terminal URL does not match ${state.selectedPlatform.label}"
+                                } else {
+                                    "Use your broker's own WebTrader URL"
+                                },
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = extra.amber,
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = if (effectiveUrl.isBlank()) {
-                                    "Enter the exact WebTrader URL from your broker's client area. It is saved per broker for next time."
-                                } else {
-                                    "Generic MetaQuotes URLs often fail with Network/Authorization errors for third-party brokers. Replace it with your broker's own WebTrader URL."
+                                text = when {
+                                    effectiveUrl.isBlank() ->
+                                        "Enter the exact WebTrader URL from your broker's client area. It is saved per broker for next time."
+                                    urlMismatch && state.selectedPlatform == PlatformType.MT4 ->
+                                        "https://live.justmarkets.com and trade.metatrader5.com are MT5 terminals. For MT4 use https://metatraderweb.app/trade."
+                                    urlMismatch ->
+                                        "metatraderweb.app is an MT4 terminal. Switch platform to MT4 or use your broker's MT5 URL (e.g. https://live.justmarkets.com)."
+                                    else ->
+                                        "Generic MetaQuotes URLs often fail with Network/Authorization errors for third-party brokers. Replace it with your broker's own WebTrader URL."
                                 },
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurface,

@@ -11,6 +11,8 @@ import com.example.data.local.AllowedSymbolEntity
 import com.example.data.local.BtechDatabase
 import com.example.data.local.SavedAccountEntity
 import com.example.model.AllowedSymbolConfig
+import com.example.model.BrokerSymbolResolver
+import com.example.model.DiscoveredBrokerCatalog
 import com.example.model.NavStyle
 import com.example.model.PlatformType
 import com.example.model.SavedAccount
@@ -37,6 +39,7 @@ data class PersistedBtechData(
     val allowedSymbols: List<AllowedSymbolConfig> = emptyList(),
     val savedAccount: SavedAccount? = null,
     val savedAccountsByBroker: Map<String, SavedAccount> = emptyMap(),
+    val discoveredCatalogsByKey: Map<String, DiscoveredBrokerCatalog> = emptyMap(),
 )
 
 class BtechPreferencesRepository(private val context: Context) {
@@ -55,6 +58,7 @@ class BtechPreferencesRepository(private val context: Context) {
         val PROFILE_NAME = stringPreferencesKey("profile_name")
         val ALLOWED_SYMBOLS = stringPreferencesKey("allowed_symbols_json")
         val SAVED_ACCOUNT = stringPreferencesKey("saved_account_json")
+        val DISCOVERED_CATALOGS = stringPreferencesKey("discovered_symbol_catalogs_json")
     }
 
     val dataFlow: Flow<PersistedBtechData> = combine(
@@ -78,6 +82,7 @@ class BtechPreferencesRepository(private val context: Context) {
             allowedSymbols = symbolEntities.map { it.toModel() },
             savedAccount = activeAccount,
             savedAccountsByBroker = mappedAccounts.associateBy { it.broker },
+            discoveredCatalogsByKey = decodeDiscoveredCatalogs(prefs[Keys.DISCOVERED_CATALOGS]),
         )
     }.onStart {
         migrateLegacyPrefsToRoomIfNeeded()
@@ -153,6 +158,80 @@ class BtechPreferencesRepository(private val context: Context) {
 
     suspend fun setProfileName(name: String) {
         context.btechDataStore.edit { it[Keys.PROFILE_NAME] = name }
+    }
+
+    suspend fun getDiscoveredCatalog(
+        broker: String,
+        platform: PlatformType,
+        server: String,
+    ): DiscoveredBrokerCatalog? {
+        val prefs = context.btechDataStore.data.first()
+        val key = BrokerSymbolResolver.cacheKey(broker, platform, server)
+        return decodeDiscoveredCatalogs(prefs[Keys.DISCOVERED_CATALOGS])[key]
+    }
+
+    suspend fun recordDiscoveredSymbols(
+        broker: String,
+        platform: PlatformType,
+        server: String,
+        symbols: List<String>,
+        requestedSymbol: String? = null,
+        actualBrokerSymbol: String? = null,
+    ) {
+        val key = BrokerSymbolResolver.cacheKey(broker, platform, server)
+        context.btechDataStore.edit { prefs ->
+            val currentMap = decodeDiscoveredCatalogs(prefs[Keys.DISCOVERED_CATALOGS]).toMutableMap()
+            val prev = currentMap[key] ?: DiscoveredBrokerCatalog(
+                broker = broker,
+                platform = platform,
+                server = server,
+            )
+            val mergedSymbols = (prev.symbols + symbols + listOfNotNull(actualBrokerSymbol))
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val updatedMappings = prev.resolvedMappings.toMutableMap()
+            if (!requestedSymbol.isNullOrBlank() && !actualBrokerSymbol.isNullOrBlank()) {
+                updatedMappings[requestedSymbol.trim()] = actualBrokerSymbol.trim()
+            }
+            currentMap[key] = prev.copy(
+                symbols = mergedSymbols,
+                resolvedMappings = updatedMappings,
+                updatedAt = System.currentTimeMillis(),
+            )
+            prefs[Keys.DISCOVERED_CATALOGS] = encodeDiscoveredCatalogs(currentMap)
+        }
+    }
+
+    suspend fun saveVerifiedSymbolAlias(
+        broker: String,
+        platform: PlatformType,
+        server: String,
+        aliasSymbol: String,
+        verifiedBrokerSymbol: String,
+    ) {
+        val cleanAlias = aliasSymbol.trim()
+        val cleanTarget = verifiedBrokerSymbol.trim()
+        if (cleanAlias.isEmpty() || cleanTarget.isEmpty()) return
+        val key = BrokerSymbolResolver.cacheKey(broker, platform, server)
+        context.btechDataStore.edit { prefs ->
+            val currentMap = decodeDiscoveredCatalogs(prefs[Keys.DISCOVERED_CATALOGS]).toMutableMap()
+            val prev = currentMap[key] ?: DiscoveredBrokerCatalog(
+                broker = broker,
+                platform = platform,
+                server = server,
+            )
+            val nextAliases = prev.verifiedAliases.toMutableMap().apply {
+                put(cleanAlias, cleanTarget)
+            }
+            val nextSymbols = (prev.symbols + cleanTarget).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            currentMap[key] = prev.copy(
+                symbols = nextSymbols,
+                verifiedAliases = nextAliases,
+                updatedAt = System.currentTimeMillis(),
+            )
+            prefs[Keys.DISCOVERED_CATALOGS] = encodeDiscoveredCatalogs(currentMap)
+        }
     }
 
     private fun AllowedSymbolConfig.toEntity() = AllowedSymbolEntity(
@@ -253,5 +332,81 @@ class BtechPreferencesRepository(private val context: Context) {
         } catch (_: Exception) {
             List(16) { "" }
         }
+    }
+
+    private fun decodeDiscoveredCatalogs(raw: String?): Map<String, DiscoveredBrokerCatalog> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            buildMap {
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val obj = root.optJSONObject(key) ?: continue
+                    val broker = obj.optString("broker", "").trim()
+                    val platform = runCatching {
+                        PlatformType.valueOf(obj.optString("platform", "MT5"))
+                    }.getOrDefault(PlatformType.MT5)
+                    val server = obj.optString("server", "").trim()
+                    val symbolsArr = obj.optJSONArray("symbols") ?: JSONArray()
+                    val symbols = buildList {
+                        for (i in 0 until symbolsArr.length()) {
+                            val s = symbolsArr.optString(i, "").trim()
+                            if (s.isNotEmpty()) add(s)
+                        }
+                    }
+                    val mappingsObj = obj.optJSONObject("resolvedMappings")
+                    val mappings = buildMap {
+                        if (mappingsObj != null) {
+                            val mk = mappingsObj.keys()
+                            while (mk.hasNext()) {
+                                val k = mk.next()
+                                val v = mappingsObj.optString(k, "").trim()
+                                if (v.isNotEmpty()) put(k, v)
+                            }
+                        }
+                    }
+                    val aliasesObj = obj.optJSONObject("verifiedAliases")
+                    val aliases = buildMap {
+                        if (aliasesObj != null) {
+                            val ak = aliasesObj.keys()
+                            while (ak.hasNext()) {
+                                val k = ak.next()
+                                val v = aliasesObj.optString(k, "").trim()
+                                if (v.isNotEmpty()) put(k, v)
+                            }
+                        }
+                    }
+                    put(
+                        key,
+                        DiscoveredBrokerCatalog(
+                            broker = broker,
+                            platform = platform,
+                            server = server,
+                            symbols = symbols,
+                            resolvedMappings = mappings,
+                            verifiedAliases = aliases,
+                            updatedAt = obj.optLong("updatedAt", 0L),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun encodeDiscoveredCatalogs(catalogs: Map<String, DiscoveredBrokerCatalog>): String {
+        val root = JSONObject()
+        catalogs.forEach { (key, cat) ->
+            val obj = JSONObject()
+            obj.put("broker", cat.broker)
+            obj.put("platform", cat.platform.name)
+            obj.put("server", cat.server)
+            obj.put("symbols", JSONArray(cat.symbols))
+            obj.put("resolvedMappings", JSONObject(cat.resolvedMappings))
+            obj.put("verifiedAliases", JSONObject(cat.verifiedAliases))
+            obj.put("updatedAt", cat.updatedAt)
+            root.put(key, obj)
+        }
+        return root.toString()
     }
 }

@@ -91,8 +91,8 @@ class FloatingOverlayMonitorTest {
     }
 
     @Test
-    fun `trade script supports suffix variants and order picker fallback`() {
-        val script = WebTerminalScripts.buildTradeScript(
+    fun `trade script enforces separate MT4 and MT5 discovery and pre-order verification`() {
+        val mt5Script = WebTerminalScripts.buildTradeScript(
             symbol = "XAUUSD.s",
             direction = "BUY",
             lot = "0.01",
@@ -100,27 +100,53 @@ class FloatingOverlayMonitorTest {
             takeProfit = "",
             comment = "BTECH-EA",
             tradeCount = 1,
+            platform = "MT5",
+            broker = "Exness",
+            server = "Exness-MT5Trial9",
         )
-        assertTrue(script.contains("extractBaseSymbol"))
-        assertTrue(script.contains("clickAddButtonInsideRow"))
-        assertTrue(script.contains("findCustomSymbolDropdown"))
-        assertTrue(script.contains("VARIANT_REGEX"))
-        assertTrue(script.contains("SUFFIX_CANDIDATES"))
-        assertTrue(script.contains("findOrderFieldInput"))
-        assertTrue(script.contains("findOrderActionButton"))
-        assertTrue(script.contains("executeSequentialTrades"))
-        assertTrue(script.contains("confirmed · "))
-        assertTrue(script.contains("countBrokerPositions"))
-        assertTrue(script.contains("readUsedMarginNumeric"))
-        assertTrue(script.contains("cleanSymbolLabel"))
-        assertTrue(script.contains("findReceiptConfirmButton"))
-        assertTrue(script.contains("singleClick"))
-        assertTrue(script.contains("findStrictNewOrderButton"))
-        assertTrue(script.contains("checkAuthAndStart"))
-        assertTrue(script.contains("__btechTradeRunId"))
-        assertFalse(script.contains("fallbackConfirmed"))
-        assertFalse(script.contains("buttonCycleCompleted"))
-        assertFalse(script.contains("Retrying Trade"))
+        assertTrue(mt5Script.contains("discoverMT5Symbol"))
+        assertTrue(mt5Script.contains("discoverAllBrokerSymbols"))
+        assertTrue(mt5Script.contains("stripKnownSuffix"))
+        assertTrue(mt5Script.contains("matchRank"))
+        assertTrue(mt5Script.contains("findOrderFieldInput"))
+        assertTrue(mt5Script.contains("findOrderActionButton"))
+        assertTrue(mt5Script.contains("verifySelectedInstrumentAndOrderForm"))
+        assertTrue(mt5Script.contains("executeSequentialTrades"))
+        assertTrue(mt5Script.contains("countBrokerPositions"))
+        assertTrue(mt5Script.contains("readUsedMarginNumeric"))
+        assertTrue(mt5Script.contains("cleanSymbolLabel"))
+        assertTrue(mt5Script.contains("findScopedResultOkButton"))
+        assertTrue(mt5Script.contains("dismissTradeResult"))
+        assertTrue(mt5Script.contains("isExplicitAcceptanceStatusText"))
+        assertTrue(mt5Script.contains("singleClick"))
+        assertTrue(mt5Script.contains("findStrictNewOrderButton"))
+        assertTrue(mt5Script.contains("checkAuthAndStart"))
+        assertTrue(mt5Script.contains("__btechTradeRunId"))
+        assertTrue(mt5Script.contains("onSymbolDiscovered"))
+        assertFalse(mt5Script.contains("DRY_RUN"))
+        assertFalse(mt5Script.contains("fallbackConfirmed"))
+        assertFalse(mt5Script.contains("buttonCycleCompleted"))
+        assertFalse(mt5Script.contains("Retrying Trade"))
+        assertFalse(mt5Script.contains("deepAll('body *')"))
+        assertFalse(mt5Script.contains("queryDeepAll('body *')"))
+
+        val mt4Script = WebTerminalScripts.buildTradeScript(
+            symbol = "XAUUSD",
+            direction = "SELL",
+            lot = "0.02",
+            stopLoss = "2650",
+            takeProfit = "2600",
+            comment = "BTECH-MT4",
+            tradeCount = 1,
+            platform = "MT4",
+            broker = "JustMarkets",
+            server = "JustMarkets-Demo",
+        )
+        assertTrue(mt4Script.contains("discoverMT4Symbol"))
+        assertTrue(mt4Script.contains("openMT4ContextMenu"))
+        assertTrue(mt4Script.contains("findExactVisibleText('Show All'"))
+        assertTrue(mt4Script.contains("doubleClickMT4Row"))
+        assertTrue(mt4Script.contains("PLATFORM = \"MT4\""))
 
         val balScript = WebTerminalScripts.buildBalanceTelemetryScript()
         assertTrue(balScript.contains("[A-Z]{3}(?![a-z])"))
@@ -213,31 +239,61 @@ class FloatingOverlayMonitorTest {
         assertEquals("Symbol selected", snap.executionSteps[3].label)
         assertEquals(ExecutionStepStatus.COMPLETED, snap.executionSteps[3].status)
 
-        // Trade 1 -> Trade 2 sequential steps
+        // Trade 1/10 -> 2/10 -> 10/10 updates the SINGLE 'TRADE' row in-place (never stacks multiple rows)
         OverlayStateBus.updateDynamicStep(
-            key = "TRADE_1",
+            key = "TRADE",
             stepId = ExecutionStepId.EXECUTING_TRADE,
             status = ExecutionStepStatus.ACTIVE,
-            label = "Waiting for broker confirmation (1/2)",
-            detail = "Waiting for Trade 1/2",
+            label = "Waiting for broker confirmation (1/10)",
+            detail = "Waiting for Trade 1/10",
         )
+        assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
+        assertEquals("Waiting for broker confirmation (1/10)", OverlayStateBus.snapshot.value.executionSteps[4].label)
+
         OverlayStateBus.updateDynamicStep(
-            key = "TRADE_1",
+            key = "TRADE",
             stepId = ExecutionStepId.EXECUTING_TRADE,
             status = ExecutionStepStatus.COMPLETED,
-            label = "Trade 1/2 confirmed",
-            detail = "Trade 1/2 confirmed · #1089003442 buy 0.03 XAUUSD",
+            label = "Trade 1/10 confirmed",
+            detail = "Trade 1/10 confirmed · #1089003442 buy 0.03 XAUUSD",
         )
+        assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
+        assertEquals("Trade 1/10 confirmed", OverlayStateBus.snapshot.value.executionSteps[4].label)
+
         OverlayStateBus.updateDynamicStep(
-            key = "TRADE_2",
+            key = "TRADE",
             stepId = ExecutionStepId.EXECUTING_TRADE,
             status = ExecutionStepStatus.ACTIVE,
-            label = "Waiting for broker confirmation (2/2)",
-            detail = "Waiting for Trade 2/2",
+            label = "Executing trade 2/10",
+            detail = "Trade 2/10 executing",
         )
+        assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
+        assertEquals("Executing trade 2/10", OverlayStateBus.snapshot.value.executionSteps[4].label)
 
-        OverlayStateBus.completeExecutionSuccess("All 2/2 trades confirmed · #1089004314 buy 0.03 XAUUSD")
+        OverlayStateBus.updateDynamicStep(
+            key = "TRADE",
+            stepId = ExecutionStepId.EXECUTING_TRADE,
+            status = ExecutionStepStatus.COMPLETED,
+            label = "Trade 2/10 confirmed",
+            detail = "Trade 2/10 confirmed · #1089003443 buy 0.03 XAUUSD",
+        )
+        assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
+        assertEquals("Trade 2/10 confirmed", OverlayStateBus.snapshot.value.executionSteps[4].label)
+
+        OverlayStateBus.updateDynamicStep(
+            key = "TRADE",
+            stepId = ExecutionStepId.EXECUTING_TRADE,
+            status = ExecutionStepStatus.COMPLETED,
+            label = "Trade 10/10 confirmed",
+            detail = "All 10/10 trades confirmed",
+        )
+        assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
+        assertEquals("Trade 10/10 confirmed", OverlayStateBus.snapshot.value.executionSteps[4].label)
+
+        OverlayStateBus.completeExecutionSuccess("All 10/10 trades confirmed · #1089004314 buy 0.03 XAUUSD")
         snap = OverlayStateBus.snapshot.value
+        assertEquals(5, snap.executionSteps.size)
+        assertEquals("Trade 10/10 confirmed", snap.executionSteps[4].label)
         assertTrue(snap.executionCompleted)
         assertFalse(snap.isExecuting)
         assertEquals(1f, snap.executionProgress)
@@ -251,5 +307,17 @@ class FloatingOverlayMonitorTest {
 
         OverlayStateBus.clearLogs()
         assertTrue(OverlayStateBus.snapshot.value.executionSteps.isEmpty())
+    }
+
+    @Test
+    fun `OverlaySnapshot defaults to light mode and tracks theme updates`() {
+        OverlayStateBus.updateSnapshot { it.copy(isDarkTheme = false) }
+        assertFalse(OverlayStateBus.snapshot.value.isDarkTheme)
+
+        OverlayStateBus.updateSnapshot { it.copy(isDarkTheme = true) }
+        assertTrue(OverlayStateBus.snapshot.value.isDarkTheme)
+
+        OverlayStateBus.updateSnapshot { it.copy(isDarkTheme = false) }
+        assertFalse(OverlayStateBus.snapshot.value.isDarkTheme)
     }
 }

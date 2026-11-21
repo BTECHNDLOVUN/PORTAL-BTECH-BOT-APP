@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.BtechPreferencesRepository
 import com.example.model.AllowedSymbolConfig
 import com.example.model.BrokerCatalog
+import com.example.model.BrokerSymbolResolver
+import com.example.model.DiscoveredBrokerCatalog
 import com.example.model.ExecutionStepLog
 import com.example.model.NavStyle
 import com.example.model.PlatformType
 import com.example.model.SavedAccount
 import com.example.model.SimulatedSignalRequest
+import com.example.model.TradeChannelSignal
 import com.example.model.TradeDirection
 import com.example.service.BtechOverlayService
 import com.example.service.FloatingOverlayMonitor
@@ -20,6 +23,7 @@ import com.example.webterminal.WebTerminalEngine
 import com.example.webterminal.WebTerminalStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -66,6 +70,9 @@ data class AppUiState(
     val accountFloatingPl: String = "—",
     val balanceUpdatedAt: String = "",
     val balanceStatus: String = "Waiting for Web Terminal",
+    val discoveredSymbols: List<String> = emptyList(),
+    val isDiscoveringSymbols: Boolean = false,
+    val discoveredCatalogsByKey: Map<String, DiscoveredBrokerCatalog> = emptyMap(),
     val toastMessage: String? = null,
     val toastIsError: Boolean = false,
 )
@@ -99,6 +106,11 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                         allowedSymbols = saved.allowedSymbols,
                         savedAccount = saved.savedAccount,
                         savedAccountsByBroker = saved.savedAccountsByBroker,
+                        discoveredCatalogsByKey = saved.discoveredCatalogsByKey,
+                        discoveredSymbols = saved.savedAccount?.let { acc ->
+                            val key = BrokerSymbolResolver.cacheKey(acc.broker, acc.platform, acc.server)
+                            saved.discoveredCatalogsByKey[key]?.symbols.orEmpty()
+                        }.orEmpty(),
                         accentHex = saved.accentHex,
                         customColors = saved.customColors,
                         isDarkTheme = saved.isDarkTheme,
@@ -136,11 +148,19 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            OverlayStateBus.actions.collectLatest { event ->
+            OverlayStateBus.actions.collect { event ->
                 when (event) {
                     is OverlayActionEvent.StopBotRequested -> stopBot()
                     is OverlayActionEvent.StopBalanceMonitorRequested -> stopFloatingBalanceMonitor()
                     is OverlayActionEvent.RefreshBalanceRequested -> webEngine.pollBalanceOnce()
+                    is OverlayActionEvent.SkipTradingChanged -> {
+                        if (event.skipTrading) {
+                            webEngine.cancelActiveTradeRun(
+                                reason = "Skip Trades activated — pending discovery and queued trades cancelled.",
+                                markAsStopped = false,
+                            )
+                        }
+                    }
                     is OverlayActionEvent.SimulateTradeRequested -> {
                         val firstSymbol = _uiState.value.allowedSymbols.firstOrNull { it.live }
                             ?: _uiState.value.allowedSymbols.firstOrNull()
@@ -158,6 +178,7 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                                     takeProfit = "",
                                     comment = "BTECH-EA",
                                     tradeCount = firstSymbol.trades.toIntOrNull()?.coerceIn(1, 10) ?: 1,
+                                    platform = _uiState.value.savedAccount?.platform ?: firstSymbol.platform,
                                 )
                             )
                         }
@@ -177,6 +198,7 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                 serverName = account?.server ?: "Not connected",
                 accentHex = state.accentHex,
                 isConnected = account?.authenticated == true,
+                isDarkTheme = state.isDarkTheme,
             )
         }
     }
@@ -371,11 +393,24 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
             showToast("Use your broker's own WebTrader URL", isError = true)
             return
         }
-        val normalizedUrl = if (terminalUrl.startsWith("http://") || terminalUrl.startsWith("https://")) {
-            terminalUrl
-        } else {
-            "https://$terminalUrl"
+        if (BrokerCatalog.isUrlPlatformMismatch(terminalUrl, s.selectedPlatform)) {
+            val mismatchHint = if (s.selectedPlatform == PlatformType.MT4) {
+                "$terminalUrl is an MT5 terminal. Select MT5 or use https://metatraderweb.app/trade for MT4."
+            } else {
+                "$terminalUrl is an MT4 terminal. Select MT4 or use your broker's MT5 URL (e.g. https://live.justmarkets.com)."
+            }
+            showToast(mismatchHint, isError = true)
+            _uiState.update {
+                it.copy(authDialogSuccess = false, authDialogMessage = mismatchHint)
+            }
+            return
         }
+        val normalizedUrl = BrokerCatalog.buildLaunchUrl(
+            rawUrl = terminalUrl,
+            platform = s.selectedPlatform,
+            login = login,
+            server = serverName,
+        )
 
         val existing = s.savedAccount
         if (existing != null) {
@@ -687,6 +722,10 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopBot() {
+        webEngine.cancelActiveTradeRun(
+            reason = "Robot stopped (queued/pending executions cancelled; already submitted broker orders are unaffected).",
+            markAsStopped = true,
+        )
         BtechOverlayService.stop(getApplication())
         val keepPolling = OverlayStateBus.snapshot.value.isBalanceMonitorRunning
         if (!keepPolling) {
@@ -701,7 +740,7 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         _uiState.update { it.copy(showInAppFloatingOverlay = false) }
-        OverlayStateBus.appendLog("Robot stopped")
+        OverlayStateBus.appendLog("Robot stopped — pending discovery and queued trades cancelled")
         showToast("Robot stopped")
     }
 
@@ -724,7 +763,8 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun executeSimulatedTrade(request: SimulatedSignalRequest) {
-        val account = _uiState.value.savedAccount
+        val state = _uiState.value
+        val account = state.savedAccount
         if (account == null || account.login.isBlank()) {
             showToast("No broker login details saved", isError = true)
             return
@@ -738,9 +778,68 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showSimulateDialog = false) }
         webEngine.executeSimulatedTrade(
             account = account,
-            signal = request,
+            signal = request.copy(platform = request.platform ?: account.platform),
         ) { success, summary ->
             showToast(summary, isError = !success)
+        }
+    }
+
+    fun executeTradeChannelSignal(rawJson: String): Boolean {
+        val signal = TradeChannelSignal.fromJson(rawJson) ?: run {
+            OverlayStateBus.appendLog("Rejected malformed Trade Channel payload", isError = true)
+            return false
+        }
+        val state = _uiState.value
+        val account = state.savedAccount
+        if (account == null || !account.authenticated || account.login.isBlank()) {
+            OverlayStateBus.appendLog("Signal ${signal.signalId} rejected: no authenticated broker account", isError = true)
+            return false
+        }
+        if (!state.isRunning || OverlayStateBus.snapshot.value.skipTrading) {
+            OverlayStateBus.appendLog("Signal ${signal.signalId} skipped: robot stopped or Skip Trades active", isError = true)
+            return false
+        }
+        if (signal.platform != account.platform) {
+            OverlayStateBus.appendLog(
+                "Signal ${signal.signalId} skipped: expects ${signal.platform.label}, active account is ${account.platform.label}",
+                isError = true,
+            )
+            return false
+        }
+        val authorizedConfig = state.allowedSymbols.firstOrNull { cfg ->
+            cfg.platform == signal.platform &&
+                cfg.live &&
+                BrokerSymbolResolver.matchRank(cfg.symbol, signal.symbol) > 0 &&
+                (cfg.direction == TradeDirection.BOTH || cfg.direction == signal.direction)
+        }
+        if (authorizedConfig == null) {
+            OverlayStateBus.appendLog(
+                "Signal ${signal.signalId} skipped: ${signal.symbol} (${signal.platform.label} ${signal.direction.label}) is not enabled in Allowed Symbols.",
+                isError = true,
+            )
+            return false
+        }
+        executeSimulatedTrade(signal.toSignalRequest())
+        return true
+    }
+
+    fun refreshBrokerSymbols(targetSymbol: String = "XAUUSD") {
+        val account = _uiState.value.savedAccount
+        if (account == null || account.login.isBlank()) {
+            showToast("Connect a broker account in Meta first", isError = true)
+            return
+        }
+        _uiState.update { it.copy(isDiscoveringSymbols = true) }
+        webEngine.discoverSymbolsOnTerminal(account, targetSymbol) { res ->
+            _uiState.update { cur ->
+                val merged = if (res.discoveredSymbols.isNotEmpty()) res.discoveredSymbols else cur.discoveredSymbols
+                cur.copy(isDiscoveringSymbols = false, discoveredSymbols = merged)
+            }
+            if (res.discoveredSymbols.isNotEmpty()) {
+                showToast("Discovered ${res.discoveredSymbols.size} symbols on ${account.platform.label}")
+            } else {
+                showToast(res.message.ifBlank { "No symbols read yet — open Web Terminal workspace first" }, isError = !res.success)
+            }
         }
     }
 

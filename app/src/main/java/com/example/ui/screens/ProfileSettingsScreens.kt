@@ -1219,6 +1219,9 @@ fun SimulateTradeDialog(
     var comment by remember { mutableStateOf("BTECH-EA") }
     var tradeCount by remember { mutableStateOf(first?.trades ?: "1") }
 
+    val activePlatform = state.savedAccount?.platform ?: first?.platform ?: com.example.model.PlatformType.MT5
+    val cleanSym = symbol.trim().ifEmpty { "XAUUSD" }
+
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = MaterialTheme.colorScheme.primary,
         unfocusedBorderColor = extra.line,
@@ -1239,11 +1242,16 @@ fun SimulateTradeDialog(
                 tint = MaterialTheme.colorScheme.primary,
             )
         },
-        title = { Text("Simulate Signal Trade", fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                text = "Simulate Signal Trade (${activePlatform.label})",
+                fontWeight = FontWeight.Bold,
+            )
+        },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = "Simulates receiving a BTECH Portal trade signal and automates Search Symbol → Add Order → Set Volume/SL/TP/Comment → Submit on your connected Web Terminal.",
+                    text = "Simulates receiving a BTECH Portal trade signal and automates ${activePlatform.label} Symbol Discovery → Verify Order Form → Set Volume/SL/TP/Comment → Submit on your connected Web Terminal.",
                     fontSize = 11.sp,
                     color = extra.muted,
                 )
@@ -1387,13 +1395,14 @@ fun SimulateTradeDialog(
                 onClick = {
                     onConfirmSimulate(
                         SimulatedSignalRequest(
-                            symbol = symbol.trim().ifEmpty { "XAUUSD" },
+                            symbol = cleanSym,
                             direction = direction,
                             lot = lot.trim().ifEmpty { "0.01" },
                             stopLoss = stopLoss.trim(),
                             takeProfit = takeProfit.trim(),
                             comment = comment.trim().ifEmpty { "BTECH-EA" },
                             tradeCount = tradeCount.toIntOrNull()?.coerceIn(1, 10) ?: 1,
+                            platform = activePlatform,
                         )
                     )
                 },
@@ -1578,9 +1587,8 @@ fun WebTerminalInspectorDialog(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     listOf(
-                        "JM MT4" to BrokerCatalog.JUSTMARKETS_MT4_WEB_URL,
-                        "JM Portal" to "https://justmarkets.com/trading-platforms/metatrader-webterminal",
-                        "MQ MT4" to BrokerCatalog.METAQUOTES_MT4_URL,
+                        "JM MT5" to BrokerCatalog.JUSTMARKETS_MT5_URL,
+                        "MT4 Web" to BrokerCatalog.METAQUOTES_MT4_URL,
                         "MQ MT5" to BrokerCatalog.METAQUOTES_MT5_URL,
                     ).forEach { (label, endpoint) ->
                         val selected = webStatus.currentUrl.startsWith(endpoint)

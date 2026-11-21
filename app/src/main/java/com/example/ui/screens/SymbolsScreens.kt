@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +69,7 @@ fun SymbolsScreen(
     onTabChange: (Int) -> Unit,
     onOpenSymbolConfig: (String) -> Unit,
     onBack: () -> Unit,
+    onRefreshDiscoveredSymbols: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val extra = LocalBtechColors.current
@@ -181,8 +183,71 @@ fun SymbolsScreen(
             )
             Spacer(modifier = Modifier.height(10.dp))
 
+            val acct = state.savedAccount
+            if (acct != null && onRefreshDiscoveredSymbols != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, extra.line),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${acct.broker} · ${acct.platform.label} (${acct.server.ifBlank { "Terminal" }})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = if (state.discoveredSymbols.isNotEmpty()) {
+                                    "${state.discoveredSymbols.size} broker instruments discovered dynamically"
+                                } else {
+                                    "Scan open ${acct.platform.label} terminal for live broker symbols"
+                                },
+                                fontSize = 10.sp,
+                                color = extra.muted,
+                            )
+                        }
+                        TextButton(
+                            onClick = onRefreshDiscoveredSymbols,
+                            enabled = !state.isDiscoveringSymbols,
+                            modifier = Modifier.testTag("scan_broker_symbols_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "Scan broker symbols",
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (state.isDiscoveringSymbols) "SCANNING..." else "SCAN TERMINAL",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
             val trimmed = searchQuery.trim()
-            val filtered = BrokerCatalog.markets.filter {
+            val discoveredEntries = state.discoveredSymbols.map { sym ->
+                com.example.model.MarketSymbol(
+                    symbol = sym,
+                    description = "Discovered on ${acct?.broker ?: "Broker"} ${acct?.platform?.label ?: ""}".trim(),
+                )
+            }
+            val discoveredNames = state.discoveredSymbols.map { it.lowercase() }.toSet()
+            val combinedMarkets = discoveredEntries + BrokerCatalog.markets.filterNot {
+                discoveredNames.contains(it.symbol.lowercase())
+            }
+            val filtered = combinedMarkets.filter {
                 trimmed.isEmpty() || it.symbol.contains(trimmed, ignoreCase = true) ||
                     it.description.contains(trimmed, ignoreCase = true)
             }

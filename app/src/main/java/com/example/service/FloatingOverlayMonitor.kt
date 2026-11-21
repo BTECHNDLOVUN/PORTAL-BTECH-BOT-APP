@@ -85,7 +85,15 @@ class FloatingOverlayMonitor : Service() {
     private var tvTitle: TextView? = null
     private var tvOwner: TextView? = null
     private var tvServerLine: TextView? = null
+    private var controlsContainer: LinearLayout? = null
+    private var controlsDividerView: View? = null
     private var tvLiveBadge: TextView? = null
+    private var bodyContainer: LinearLayout? = null
+    private var statusCardContainer: LinearLayout? = null
+    private var statusTitleView: TextView? = null
+    private var refreshButtonView: TextView? = null
+    private var equityLabelView: TextView? = null
+    private var plLabelView: TextView? = null
     private var tvBalanceValue: TextView? = null
     private var tvEquityValue: TextView? = null
     private var tvProfitValue: TextView? = null
@@ -94,6 +102,9 @@ class FloatingOverlayMonitor : Service() {
     private var tvLogsToggleBtn: TextView? = null
     private var tvLogConsole: TextView? = null
     private var logScrollView: ScrollView? = null
+    private var footerContainer: LinearLayout? = null
+    private var footerCopyView: TextView? = null
+    private var lastRenderedDarkTheme: Boolean? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -151,6 +162,11 @@ class FloatingOverlayMonitor : Service() {
     private fun observeSnapshot() {
         serviceScope.launch {
             OverlayStateBus.snapshot.collectLatest { snap ->
+                val isDark = snap.isDarkTheme
+                if (lastRenderedDarkTheme != isDark) {
+                    applyThemeColors(isDark)
+                    lastRenderedDarkTheme = isDark
+                }
                 tvTitle?.text = snap.botName
                 tvOwner?.text = snap.botOwner
                 val connLabel = if (snap.isConnected) {
@@ -165,9 +181,9 @@ class FloatingOverlayMonitor : Service() {
                 tvProfitValue?.text = snap.accountFloatingPl
                 tvProfitValue?.setTextColor(
                     when {
-                        snap.accountFloatingPl.startsWith("-") -> "#FF5966".toColorInt()
-                        snap.accountFloatingPl == "—" -> "#E2E8F0".toColorInt()
-                        else -> "#41D39A".toColorInt()
+                        snap.accountFloatingPl.startsWith("-") -> if (isDark) "#FF5966".toColorInt() else "#D92C40".toColorInt()
+                        snap.accountFloatingPl == "—" -> if (isDark) "#E2E8F0".toColorInt() else "#627386".toColorInt()
+                        else -> if (isDark) "#41D39A".toColorInt() else "#167745".toColorInt()
                     },
                 )
                 tvUpdatedLine?.text = if (snap.balanceUpdatedAt.isNotBlank()) {
@@ -352,6 +368,7 @@ class FloatingOverlayMonitor : Service() {
         controls.addView(logsBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(31)).apply { marginEnd = dp(7) })
         controls.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
         controls.addView(liveBadge)
+        controlsContainer = controls
         root.addView(controls)
 
         // Controls bottom divider
@@ -359,6 +376,7 @@ class FloatingOverlayMonitor : Service() {
             setBackgroundColor("#263447".toColorInt())
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
         }
+        controlsDividerView = controlsDivider
         root.addView(controlsDivider)
 
         // Body (.float-panel-body): Status Card (with Live Balance) + Collapsible Blue Console
@@ -487,6 +505,12 @@ class FloatingOverlayMonitor : Service() {
         }
         statusCard.addView(updatedTv)
         tvUpdatedLine = updatedTv
+        bodyContainer = body
+        statusCardContainer = statusCard
+        statusTitleView = statusTitleTv
+        refreshButtonView = refreshBtn
+        equityLabelView = equityLbl
+        plLabelView = plSpacer
         body.addView(statusCard)
 
         // Collapsible blue gradient console matching HTML .float-log
@@ -534,6 +558,8 @@ class FloatingOverlayMonitor : Service() {
         }
         footer.addView(footerCopy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         footer.addView(stopBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(28)))
+        footerContainer = footer
+        footerCopyView = footerCopy
         root.addView(footer)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -559,7 +585,64 @@ class FloatingOverlayMonitor : Service() {
 
         cardView = root
         cardParams = params
+        val initialDark = OverlayStateBus.snapshot.value.isDarkTheme
+        applyThemeColors(initialDark)
+        lastRenderedDarkTheme = initialDark
         windowManager.addView(root, params)
+    }
+
+    private fun applyThemeColors(isDark: Boolean) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        (bubbleView as? FrameLayout)?.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (isDark) "#102743".toColorInt() else "#FFFFFF".toColorInt())
+            setStroke(dp(3), if (isDark) Color.WHITE else "#D0D9E3".toColorInt())
+        }
+
+        cardView?.background = GradientDrawable().apply {
+            setColor(if (isDark) "#070B14".toColorInt() else "#FFFFFF".toColorInt())
+            cornerRadius = dp(8).toFloat()
+            setStroke(dp(1), if (isDark) "#526071".toColorInt() else "#D0D9E3".toColorInt())
+        }
+
+        controlsContainer?.setBackgroundColor(if (isDark) "#0B111C".toColorInt() else "#EDF2F7".toColorInt())
+        tvLogsToggleBtn?.apply {
+            setTextColor(if (isDark) "#E9F2FF".toColorInt() else "#182534".toColorInt())
+            background = GradientDrawable().apply {
+                setColor(if (isDark) "#202C3C".toColorInt() else "#FFFFFF".toColorInt())
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), if (isDark) "#45546A".toColorInt() else "#D0D9E3".toColorInt())
+            }
+        }
+        controlsDividerView?.setBackgroundColor(if (isDark) "#263447".toColorInt() else "#D0D9E3".toColorInt())
+
+        val bodyColor = if (isDark) "#080E19".toColorInt() else "#F2F5F9".toColorInt()
+        bodyContainer?.setBackgroundColor(bodyColor)
+        footerContainer?.setBackgroundColor(bodyColor)
+        footerCopyView?.setTextColor(if (isDark) "#8397AF".toColorInt() else "#627386".toColorInt())
+
+        statusCardContainer?.background = GradientDrawable().apply {
+            setColor(if (isDark) "#101B2B".toColorInt() else "#FFFFFF".toColorInt())
+            cornerRadius = dp(8).toFloat()
+            setStroke(dp(1), if (isDark) "#25384E".toColorInt() else "#D0D9E3".toColorInt())
+        }
+        statusTitleView?.setTextColor(if (isDark) "#F1F5FB".toColorInt() else "#182534".toColorInt())
+        tvBalanceValue?.setTextColor(if (isDark) "#41D39A".toColorInt() else "#167745".toColorInt())
+        refreshButtonView?.apply {
+            setTextColor(if (isDark) "#68EDA6".toColorInt() else "#167745".toColorInt())
+            background = GradientDrawable().apply {
+                setColor(if (isDark) "#1C2D3E".toColorInt() else "#EDF2F7".toColorInt())
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), if (isDark) "#345371".toColorInt() else "#D0D9E3".toColorInt())
+            }
+        }
+        val mutedColor = if (isDark) "#9FB1C8".toColorInt() else "#627386".toColorInt()
+        equityLabelView?.setTextColor(mutedColor)
+        plLabelView?.setTextColor(mutedColor)
+        tvEquityValue?.setTextColor(if (isDark) "#EEF4F7".toColorInt() else "#182534".toColorInt())
+        tvUpdatedLine?.setTextColor(mutedColor)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -651,6 +734,7 @@ class FloatingOverlayMonitor : Service() {
 
         bubbleView = container
         bubbleParams = params
+        applyThemeColors(OverlayStateBus.snapshot.value.isDarkTheme)
         windowManager.addView(container, params)
     }
 

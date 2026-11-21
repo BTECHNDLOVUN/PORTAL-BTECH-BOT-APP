@@ -77,12 +77,16 @@ class BtechOverlayService : Service() {
     private var isPanelExpanded = false
     private var logsVisible = true
 
-    // Dynamic panel views
+    // Dynamic panel views & theme state
     private var tvTitle: TextView? = null
     private var tvOwner: TextView? = null
     private var tvServerLine: TextView? = null
+    private var controlsContainer: LinearLayout? = null
+    private var controlsDividerView: View? = null
     private var tvSkipBtn: TextView? = null
     private var tvLogsToggleBtn: TextView? = null
+    private var bodyContainer: LinearLayout? = null
+    private var statusCardContainer: LinearLayout? = null
     private var tvStatusPill: TextView? = null
     private var tvStatusTitle: TextView? = null
     private var tvStatusDetail: TextView? = null
@@ -93,7 +97,10 @@ class BtechOverlayService : Service() {
     private var execProgressBar: ProgressBar? = null
     private var execStepsContainer: LinearLayout? = null
     private var tvExecDetail: TextView? = null
+    private var footerContainer: LinearLayout? = null
+    private var footerCopyView: TextView? = null
     private var lastRenderedStepSignature: String? = null
+    private var lastRenderedDarkTheme: Boolean? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -161,6 +168,12 @@ class BtechOverlayService : Service() {
                     snap.accountFloatingPl,
                     balTime,
                 )
+
+                val isDark = snap.isDarkTheme
+                if (lastRenderedDarkTheme != isDark) {
+                    applyThemeColors(isDark)
+                    lastRenderedDarkTheme = isDark
+                }
 
                 val cyanActive = "#7CE8FF".toColorInt()
                 val greenColor = "#28D17C".toColorInt()
@@ -564,15 +577,17 @@ class BtechOverlayService : Service() {
         controls.addView(logsBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(31)).apply { marginEnd = dp(7) })
         controls.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
         controls.addView(liveBadge)
+        controlsContainer = controls
         root.addView(controls)
 
         val controlsDivider = View(this).apply {
             setBackgroundColor("#263447".toColorInt())
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
         }
+        controlsDividerView = controlsDivider
         root.addView(controlsDivider)
 
-        // Body: Compact Status + Balance Card followed by the Blue Trade Execution Card
+        // Body: Compact Status + Balance Card followed by the Trade Execution Card
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor("#080E19".toColorInt())
@@ -632,12 +647,14 @@ class BtechOverlayService : Service() {
         statusCard.addView(statusDetailTv)
         statusCard.addView(balanceLineTv)
         body.addView(statusCard)
+        bodyContainer = body
+        statusCardContainer = statusCard
         tvStatusTitle = statusTitleTv
         tvStatusPill = statusPillTv
         tvStatusDetail = statusDetailTv
         tvBalanceLine = balanceLineTv
 
-        // Blue Gradient Window: Animated Trade Execution Tracker replacing raw logs
+        // Execution Tracker Card
         val execBlueCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(10), dp(9), dp(10), dp(9))
@@ -742,6 +759,8 @@ class BtechOverlayService : Service() {
         }
         footer.addView(footerCopy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         footer.addView(stopBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(28)))
+        footerContainer = footer
+        footerCopyView = footerCopy
         root.addView(footer)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -792,7 +811,52 @@ class BtechOverlayService : Service() {
         root.visibility = View.GONE
         panelView = root
         panelParams = params
+        val initialDark = OverlayStateBus.snapshot.value.isDarkTheme
+        applyThemeColors(initialDark)
+        lastRenderedDarkTheme = initialDark
         windowManager.addView(root, params)
+    }
+
+    private fun applyThemeColors(isDark: Boolean) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        (bubbleView as? FrameLayout)?.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (isDark) "#102743".toColorInt() else "#FFFFFF".toColorInt())
+            setStroke(dp(3), if (isDark) Color.WHITE else "#D0D9E3".toColorInt())
+        }
+
+        panelView?.background = GradientDrawable().apply {
+            setColor(if (isDark) "#070B14".toColorInt() else "#FFFFFF".toColorInt())
+            cornerRadius = dp(8).toFloat()
+            setStroke(dp(1), if (isDark) "#526071".toColorInt() else "#D0D9E3".toColorInt())
+        }
+
+        controlsContainer?.setBackgroundColor(if (isDark) "#0B111C".toColorInt() else "#EDF2F7".toColorInt())
+        tvLogsToggleBtn?.apply {
+            setTextColor(if (isDark) "#E9F2FF".toColorInt() else "#182534".toColorInt())
+            background = GradientDrawable().apply {
+                setColor(if (isDark) "#202C3C".toColorInt() else "#FFFFFF".toColorInt())
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), if (isDark) "#45546A".toColorInt() else "#D0D9E3".toColorInt())
+            }
+        }
+        controlsDividerView?.setBackgroundColor(if (isDark) "#263447".toColorInt() else "#D0D9E3".toColorInt())
+
+        val bodyColor = if (isDark) "#080E19".toColorInt() else "#F2F5F9".toColorInt()
+        bodyContainer?.setBackgroundColor(bodyColor)
+        footerContainer?.setBackgroundColor(bodyColor)
+        footerCopyView?.setTextColor(if (isDark) "#8397AF".toColorInt() else "#627386".toColorInt())
+
+        statusCardContainer?.background = GradientDrawable().apply {
+            setColor(if (isDark) "#101B2B".toColorInt() else "#FFFFFF".toColorInt())
+            cornerRadius = dp(8).toFloat()
+            setStroke(dp(1), if (isDark) "#25384E".toColorInt() else "#D0D9E3".toColorInt())
+        }
+        tvStatusTitle?.setTextColor(if (isDark) "#F1F5FB".toColorInt() else "#182534".toColorInt())
+        tvStatusDetail?.setTextColor(if (isDark) "#9FB1C8".toColorInt() else "#627386".toColorInt())
+        tvBalanceLine?.setTextColor(if (isDark) "#41D39A".toColorInt() else "#167745".toColorInt())
     }
 
     private fun makeControlChip(
