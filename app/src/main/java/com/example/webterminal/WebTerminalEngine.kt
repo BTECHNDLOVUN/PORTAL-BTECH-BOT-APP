@@ -2089,7 +2089,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
-                    status = ExecutionStepStatus.ACTIVE,
+                    status = ExecutionStepStatus.COMPLETED,
                     label = lbl,
                     progress = 0.90f,
                     detail = detail,

@@ -316,18 +316,41 @@ object WebTerminalScripts {
           try { if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
           try { if (typeof el.focus === 'function') el.focus(); } catch (_) {}
           const view = getViewFor(el);
+          const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+          const cx = rect ? (rect.left + rect.width / 2) : 0;
+          const cy = rect ? (rect.top + rect.height / 2) : 0;
+          try {
+            el.dispatchEvent(new view.MouseEvent('mousedown', {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              view: view,
+              button: 0,
+              buttons: 1,
+              clientX: cx,
+              clientY: cy
+            }));
+            el.dispatchEvent(new view.MouseEvent('mouseup', {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              view: view,
+              button: 0,
+              buttons: 0,
+              clientX: cx,
+              clientY: cy
+            }));
+          } catch (_) {}
           try {
             if (typeof el.click === 'function') {
               el.click();
             } else {
-              const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-              const cx = rect ? (rect.left + rect.width / 2) : 0;
-              const cy = rect ? (rect.top + rect.height / 2) : 0;
               el.dispatchEvent(new view.MouseEvent('click', {
                 bubbles: true,
                 cancelable: true,
                 composed: true,
                 view: view,
+                button: 0,
                 clientX: cx,
                 clientY: cy
               }));
@@ -3661,40 +3684,238 @@ object WebTerminalScripts {
                 return /^(?:buy|sell|buy by market|sell by market|place|place order|submit|connect|connect to account|login|sign in|search|quotes|chart|trade|history|new order)$/.test(lowerText);
               }
 
-              function findScopedResultOkButton() {
-                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const btns = queryDeepAll('button, [role="button"], input[type="button"], input[type="submit"]').filter(isVisible);
-                return btns.find(b => {
-                  if (isInsidePositionOrOrderTable(b)) return false;
-                  const txt = normalize(b.innerText || b.value || b.textContent || b.getAttribute('aria-label'));
-                  if (txt !== 'OK') return false;
-                  return isDialogLikeContainer(b) || btns.filter(x => !isInsidePositionOrOrderTable(x)).length <= 4;
-                }) || null;
+              function isWorkspaceContainerText(lowerText) {
+                const l = String(lowerText || '');
+                if (!l) return false;
+                if (l.length > 900) return true;
+                if ((l.includes('market watch') || l.includes('search symbol')) && l.includes('balance') && l.includes('equity')) return true;
+                if (l.includes('positions') && l.includes('balance:') && l.includes('equity:') && l.length > 260) return true;
+                return false;
               }
 
-              function findScopedDialogDismissControl() {
-                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const okBtn = findScopedResultOkButton();
-                if (okBtn) return okBtn;
+              function isMarketWatchOrMenuBox(box) {
+                if (!box) return true;
+                const cls = ((box.className || '') + ' ' + (box.getAttribute && box.getAttribute('aria-label') || '')).toLowerCase();
+                if (cls.includes('market-watch') || cls.includes('mt4-ctx-menu') || cls.includes('page-menu')) return true;
+                const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!txt) return true;
+                if (txt.includes('market watch') && txt.includes('balance') && !txt.includes('buy') && !txt.includes('ok')) return true;
+                if (txt.includes('symbols') && (txt.includes('specification') || (txt.includes('show') && txt.includes('hide')))) return true;
+                if (txt.includes('connect to account') && !txt.includes('buy') && !txt.includes('sell')) return true;
+                return false;
+              }
 
-                const containers = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="dialog" i], [class*="receipt" i], [class*="popup" i], [class*="trade-result" i], [class*="order-ticket" i], [class*="order-panel" i], .trade-form').filter(isVisible);
-                for (let i = 0; i < containers.length; i++) {
-                  const box = containers[i];
-                  const boxLower = (box.textContent || '').toLowerCase();
-                  if ((boxLower.includes('market watch') || boxLower.includes('search symbol')) && boxLower.includes('balance') && !boxLower.includes('buy') && !boxLower.includes('ok')) continue;
-                  const controls = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a[role="button"], [aria-label*="close" i], [title*="close" i]')).filter(isVisible);
-                  const hit = controls.find(btn => {
-                    if (isInsidePositionOrOrderTable(btn)) return false;
-                    const txt = normalize(btn.innerText || btn.value || btn.textContent || btn.getAttribute('aria-label') || btn.getAttribute('title'));
-                    if (!txt) return false;
-                    if (isUnsafePositionActionLabel(txt)) return false;
-                    const tl = txt.toLowerCase();
-                    if (isOrderSubmitOrNavLabel(tl)) return false;
-                    return tl === 'ok' || tl === 'close' || tl === 'done' || tl === 'cancel' || tl === 'dismiss' || tl === 'got it' || tl === '×' || tl === '✕' || tl === 'x' || tl === 'close dialog' || tl === 'close order' || tl === 'close form';
-                  });
+              function isOrderPanelContainerBox(box) {
+                if (!box || isInsidePositionOrOrderTable(box) || isMarketWatchOrMenuBox(box)) return false;
+                const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!txt || isWorkspaceContainerText(txt)) return false;
+                if (txt.includes('buy by market') || txt.includes('sell by market')) return true;
+                if ((txt.includes('market execution') || txt.includes('instant execution') || txt.includes('pending order')) &&
+                  (txt.includes('volume') || txt.includes('stop loss'))) {
+                  return true;
+                }
+                return !!(box.querySelector && box.querySelector('#volume, input[name="volume"], .trade-input'));
+              }
+
+              function hasExplicitDialogSemantics(box) {
+                if (!box) return false;
+                const role = (box.getAttribute && box.getAttribute('role') || '').toLowerCase();
+                if (role === 'dialog' || role === 'alertdialog') return true;
+                const cls = (typeof box.className === 'string' ? box.className : '').toLowerCase();
+                return /(?:modal|dialog|receipt|popup|trade-result|order-dialog|mt4-order-ticket|page-window)/.test(cls);
+              }
+
+              function isResultPanelContainerBox(box) {
+                if (!box || isInsidePositionOrOrderTable(box) || isMarketWatchOrMenuBox(box)) return false;
+                const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!txt || isWorkspaceContainerText(txt)) return false;
+                const isOrderForm = isOrderPanelContainerBox(box);
+                if (!isOrderForm) {
+                  if (/#\d{4,}/.test(txt) && /\b(?:done|buy|sell|executed|filled|opened|placed)\b/.test(txt)) return true;
+                  if (/\bdone\b/.test(txt) && /\b(?:buy|sell)\b/.test(txt) && /\bat\s+\d/.test(txt)) return true;
+                  if (/\bdone\b/.test(txt) && /\bok\b/.test(txt) && txt.length <= 320 && !txt.includes('buy by market') && !txt.includes('sell by market')) return true;
+                  if (isBrokerErrorText(txt) && txt.length <= 320 && !txt.includes('market watch')) return true;
+                } else if (hasExplicitDialogSemantics(box)) {
+                  if (/\bdone\b/.test(txt) && (/#\d{4,}/.test(txt) || /\bok\b/.test(txt) || !!findTopRightCloseControlInBox(box))) return true;
+                }
+                return false;
+              }
+
+              function findBoundedResultOrOrderBoxFor(el) {
+                if (!el) return null;
+                let cur = el.parentElement;
+                for (let depth = 0; depth < 7 && cur && cur !== document.body && cur !== document.documentElement; depth++) {
+                  if (isInsidePositionOrOrderTable(cur)) break;
+                  const txtLower = (cur.innerText || cur.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!txtLower) {
+                    cur = cur.parentElement;
+                    continue;
+                  }
+                  if (isWorkspaceContainerText(txtLower)) break;
+                  if (isResultPanelContainerBox(cur)) return { box: cur, isResult: true, isOrder: false };
+                  if (isOrderPanelContainerBox(cur)) return { box: cur, isResult: false, isOrder: true };
+                  const ownCls = ((cur.className || '') + ' ' + (cur.getAttribute && cur.getAttribute('role') || '')).toLowerCase();
+                  if (!isMarketWatchOrMenuBox(cur) && /dialog|modal|receipt|popup|trade-result|order-ticket|order-panel|trade-form|page-window/.test(ownCls)) {
+                    return { box: cur, isResult: false, isOrder: false };
+                  }
+                  cur = cur.parentElement;
+                }
+                return null;
+              }
+
+              function findScopedResultOkButton() {
+                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                const semanticBtns = queryDeepAll('button, [role="button"], input[type="button"], input[type="submit"]')
+                  .filter(isVisible)
+                  .filter(x => !isInsidePositionOrOrderTable(x));
+                const candidates = queryDeepAll('button, [role="button"], input[type="button"], input[type="submit"], a, div, span')
+                  .filter(isRenderedVisible);
+                let best = null;
+                let bestScore = -1;
+                for (let i = 0; i < candidates.length; i++) {
+                  const b = candidates[i];
+                  if (isInsidePositionOrOrderTable(b) || isButtonBusyOrDisabled(b)) continue;
+                  if (b.children && b.children.length > 2) continue;
+                  const isSemantic = b.tagName === 'BUTTON' || b.tagName === 'INPUT' || b.getAttribute('role') === 'button' || b.tagName === 'A';
+                  if (!isSemantic && b.closest && b.closest('button, [role="button"]')) continue;
+                  const txt = normalize(b.innerText || b.value || b.textContent || b.getAttribute('aria-label'));
+                  if (!txt) continue;
+                  const isExactUpperOk = txt === 'OK';
+                  if (!isExactUpperOk && !(isSemantic && /^ok$/i.test(txt))) continue;
+                  const scopedPanel = findBoundedResultOrOrderBoxFor(b);
+                  if (!isDialogLikeContainer(b) && !scopedPanel && semanticBtns.length > 4) continue;
+                  let score = (isSemantic ? 40 : 10) + (isExactUpperOk ? 20 : 5) + (scopedPanel ? 15 : 0);
+                  if (score > bestScore) {
+                    bestScore = score;
+                    best = b;
+                  }
+                }
+                return best;
+              }
+
+              function findTopRightCloseControlInBox(box) {
+                if (!box || isInsidePositionOrOrderTable(box)) return null;
+                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                const controls = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a, [aria-label*="close" i], [title*="close" i], [class*="close" i], [data-testid*="close" i], div, span')).filter(isRenderedVisible);
+                const labeledHit = controls.find(btn => {
+                  if (isInsidePositionOrOrderTable(btn) || isButtonBusyOrDisabled(btn)) return false;
+                  if (btn.children && btn.children.length > 3) return false;
+                  const isSemantic = btn.tagName === 'BUTTON' || btn.tagName === 'INPUT' || btn.tagName === 'A' || btn.getAttribute('role') === 'button';
+                  const closeMeta = ((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || '') + ' ' + (typeof btn.className === 'string' ? btn.className : '') + ' ' + (btn.getAttribute('data-testid') || '')).toLowerCase();
+                  const txt = normalize(btn.innerText || btn.value || btn.textContent || btn.getAttribute('aria-label') || btn.getAttribute('title'));
+                  if (isUnsafePositionActionLabel(txt)) return false;
+                  const tl = txt.toLowerCase();
+                  if (isOrderSubmitOrNavLabel(tl)) return false;
+                  const hasCloseAttr = /close|dismiss/i.test(closeMeta);
+                  if (!txt && !hasCloseAttr) return false;
+                  if (tl === 'done') return isSemantic;
+                  if (tl === 'close' || tl === 'cancel' || tl === 'dismiss' || tl === 'got it' || tl === '×' || tl === '✕' || tl === '✖' || tl === 'close dialog' || tl === 'close order' || tl === 'close form') {
+                    return true;
+                  }
+                  if (tl === 'x') {
+                    try {
+                      const r = btn.getBoundingClientRect();
+                      return isSemantic || hasCloseAttr || (r && r.width <= 54 && r.height <= 54);
+                    } catch (_) {
+                      return isSemantic || hasCloseAttr;
+                    }
+                  }
+                  return hasCloseAttr && txt.length <= 24;
+                });
+                if (labeledHit) return labeledHit;
+
+                // Geometric top-right header close icon fallback (MT5 drawer blue × SVG / MT4 .page-window red [x])
+                let boxRect = null;
+                try { boxRect = box.getBoundingClientRect(); } catch (_) {}
+                if (!boxRect || boxRect.width < 100 || boxRect.height < 60) return null;
+
+                const iconNodes = Array.from(box.querySelectorAll('button, [role="button"], a, div, span, svg')).filter(isRenderedVisible);
+                let bestIcon = null;
+                let bestIconScore = -1;
+                for (let i = 0; i < iconNodes.length; i++) {
+                  const el = iconNodes[i];
+                  if (isInsidePositionOrOrderTable(el) || isButtonBusyOrDisabled(el)) continue;
+                  let r = null;
+                  try { r = el.getBoundingClientRect(); } catch (_) {}
+                  if (!r || r.width < 8 || r.width > 52 || r.height < 8 || r.height > 52) continue;
+                  if (r.top < boxRect.top - 4 || r.top > boxRect.top + 56) continue;
+                  if (r.right < boxRect.right - 72 || r.right > boxRect.right + 4) continue;
+                  const t = normalize(el.innerText || el.textContent);
+                  const tl = t.toLowerCase();
+                  if (t && tl !== 'x' && t !== '×' && t !== '✕' && t !== '✖') continue;
+                  const isSemantic = el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button';
+                  const hasSvg = el.tagName === 'SVG' || !!(el.querySelector && el.querySelector('svg'));
+                  let pointerOrBg = false;
+                  try {
+                    const st = getViewFor(el).getComputedStyle(el);
+                    pointerOrBg = !!(st && (st.cursor === 'pointer' || (st.backgroundColor && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && st.backgroundColor !== 'transparent')));
+                  } catch (_) {}
+                  if (!isSemantic && !hasSvg && !t && !pointerOrBg) continue;
+                  if (el.tagName === 'SVG' && el.parentElement && el.parentElement !== box) {
+                    const pTag = el.parentElement.tagName;
+                    if (pTag === 'BUTTON' || pTag === 'A' || el.parentElement.getAttribute('role') === 'button') continue;
+                  }
+                  const score = (isSemantic ? 40 : 10) + (t ? 25 : 0) + (hasSvg ? 15 : 0) + (pointerOrBg ? 10 : 0);
+                  if (score > bestIconScore) {
+                    bestIconScore = score;
+                    bestIcon = el;
+                  }
+                }
+                return bestIcon;
+              }
+
+              function findOpenOrderOrResultPanelBoxes() {
+                const seen = [];
+                function addUnique(box) {
+                  if (!box || seen.indexOf(box) >= 0) return;
+                  if (isInsidePositionOrOrderTable(box) || isMarketWatchOrMenuBox(box)) return;
+                  const txtLower = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!txtLower || isWorkspaceContainerText(txtLower)) return;
+                  seen.push(box);
+                }
+
+                const modalBoxes = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="dialog" i], [class*="receipt" i], [class*="popup" i], [class*="trade-result" i], [class*="order-ticket" i], [class*="order-panel" i], [class*="order-dialog" i], [class*="page-window" i], .trade-form').filter(isRenderedVisible);
+                for (let i = 0; i < modalBoxes.length; i++) {
+                  const box = modalBoxes[i];
+                  const cls = ((box.className || '') + ' ' + (box.getAttribute('role') || '')).toLowerCase();
+                  const isPageWindowOnly = cls.includes('page-window') && !/(?:dialog|modal|receipt|trade-result|order|trade-form)/.test(cls);
+                  if (isPageWindowOnly && !isResultPanelContainerBox(box) && !isOrderPanelContainerBox(box)) continue;
+                  // Permanent docked inline order forms with no modal/dialog semantics and no close/OK control
+                  // stay mounted in the workspace layout and must not falsely trigger blocking-dialog halts.
+                  if (!isResultPanelContainerBox(box) && !hasExplicitDialogSemantics(box) && !findTopRightCloseControlInBox(box)) {
+                    continue;
+                  }
+                  addUnique(box);
+                }
+
+                // Docked MT5/Svelte/React result drawer without dialog/modal class names
+                const resultMarkers = queryDeepAll('button, [role="button"], div, span, p').filter(isRenderedVisible);
+                for (let i = 0; i < resultMarkers.length; i++) {
+                  const node = resultMarkers[i];
+                  if (isInsidePositionOrOrderTable(node)) continue;
+                  const t = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+                  if (!t || t.length > 160) continue;
+                  if (/^(?:done|ok)$/i.test(t) || /#\d{4,}/.test(t)) {
+                    const anc = findBoundedResultOrOrderBoxFor(node);
+                    if (anc && anc.isResult) addUnique(anc.box);
+                  }
+                }
+                return seen;
+              }
+
+              function findHeaderCloseIconControl() {
+                const boxes = findOpenOrderOrResultPanelBoxes();
+                for (let i = 0; i < boxes.length; i++) {
+                  const hit = findTopRightCloseControlInBox(boxes[i]);
                   if (hit) return hit;
                 }
                 return null;
+              }
+
+              function findScopedDialogDismissControl() {
+                const okBtn = findScopedResultOkButton();
+                if (okBtn) return okBtn;
+                return findHeaderCloseIconControl();
               }
 
               // Dismisses only scoped result or order dialogs; never interacts with open positions/pending orders tables.
@@ -3713,76 +3934,61 @@ object WebTerminalScripts {
               }
 
               function findStaleOrderEntryCloseButton() {
-                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const orderContainers = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="dialog" i], [class*="modal" i], [class*="trade-form" i], [class*="order-ticket" i], [class*="order-panel" i], [class*="page-window" i]').filter(isVisible);
+                const orderContainers = findOpenOrderOrResultPanelBoxes();
                 for (let i = 0; i < orderContainers.length; i++) {
                   const box = orderContainers[i];
-                  const boxLower = (box.textContent || '').toLowerCase();
-                  if ((boxLower.includes('market watch') || boxLower.includes('search symbol') || (boxLower.includes('balance') && boxLower.includes('equity'))) && !boxLower.includes('buy by market') && !boxLower.includes('sell by market')) continue;
-                  const looksLikeOrderOrResult =
-                    boxLower.includes('buy by market') ||
-                    boxLower.includes('sell by market') ||
-                    boxLower.includes('instant execution') ||
-                    boxLower.includes('market execution') ||
-                    !!box.querySelector('#volume, input[name="volume"], .trade-input');
-                  if (!looksLikeOrderOrResult) continue;
-                  const btns = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], [aria-label*="close" i], [title*="close" i]')).filter(isVisible);
-                  const closeBtn = btns.find(b => {
-                    if (isInsidePositionOrOrderTable(b)) return false;
-                    const t = normalize(b.innerText || b.value || b.textContent || b.getAttribute('aria-label') || b.getAttribute('title'));
-                    if (isUnsafePositionActionLabel(t)) return false;
-                    const tl = t.toLowerCase();
-                    if (isOrderSubmitOrNavLabel(tl)) return false;
-                    return tl === 'close' || tl === 'cancel' || tl === 'done' || tl === 'ok' || tl === 'dismiss' || tl === '×' || tl === '✕' || tl === 'x' || tl === 'close order' || tl === 'close form';
-                  });
+                  if (!isOrderPanelContainerBox(box) && !isResultPanelContainerBox(box)) continue;
+                  const closeBtn = findTopRightCloseControlInBox(box);
                   if (closeBtn) return closeBtn;
                 }
                 return null;
               }
 
               function hasOpenBlockingModalContainer() {
-                const modalBoxes = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="receipt" i], [class*="popup" i], [class*="trade-result" i], [class*="order-dialog" i]').filter(isVisible);
-                return modalBoxes.some(box => {
-                  if (isInsidePositionOrOrderTable(box)) return false;
-                  const cls = ((box.className || '') + ' ' + (box.getAttribute('aria-label') || '')).toLowerCase();
-                  if (cls.includes('market-watch') || cls.includes('mt4-ctx-menu') || cls.includes('page-menu')) return false;
-                  const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                  if (!txt) return false;
-                  if (txt.includes('market watch') && txt.includes('balance') && !txt.includes('buy') && !txt.includes('ok')) return false;
-                  if (txt.includes('symbols') && (txt.includes('specification') || txt.includes('show') && txt.includes('hide'))) return false;
-                  if (txt.includes('connect to account') && !txt.includes('buy') && !txt.includes('sell')) return false;
-                  return true;
+                const boxes = findOpenOrderOrResultPanelBoxes();
+                return boxes.some(box => {
+                  const cls = ((box.className || '') + ' ' + (box.getAttribute('role') || '')).toLowerCase();
+                  if (isResultPanelContainerBox(box) || isOrderPanelContainerBox(box)) return true;
+                  return /(?:dialog|modal|receipt|popup|trade-result|order-dialog)/.test(cls);
                 });
+              }
+
+              function hasOpenResultOrErrorBlockingDialog() {
+                if (findScopedResultOkButton()) return true;
+                const boxes = findOpenOrderOrResultPanelBoxes();
+                return boxes.some(box => isResultPanelContainerBox(box) || !isOrderPanelContainerBox(box));
               }
 
               function hasOpenOrderOrResultDialog() {
                 if (findScopedResultOkButton()) return true;
-                if (findScopedDialogDismissControl()) return true;
-                if (findStaleOrderEntryCloseButton()) return true;
+                if (findHeaderCloseIconControl()) return true;
                 if (hasOpenBlockingModalContainer()) return true;
                 return false;
               }
 
               // Closes blocking order-entry/result/rejection dialogs safely (never open positions/pending orders),
-              // retries refused clicks, and confirms the blocking modal actually disappeared from the DOM.
+              // clicks OK first, escalates to top-right × / red [x] if OK leaves the drawer open, retries refused clicks,
+              // and confirms the blocking modal actually disappeared from the DOM.
               async function dismissBlockingDialogsAndConfirmClear(maxAttempts, waitTimeoutMs) {
                 const attemptsLimit = Number(maxAttempts || 8);
                 const verifyTimeout = Number(waitTimeoutMs || 1400);
                 let actions = 0;
+                let okClicks = 0;
 
                 for (let step = 0; step < attemptsLimit; step++) {
                   if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
                   if (!hasOpenOrderOrResultDialog()) {
                     return { cleared: true, actions: actions };
                   }
-                  const targetBtn =
-                    findScopedResultOkButton() ||
-                    findScopedDialogDismissControl() ||
-                    findStaleOrderEntryCloseButton();
+                  const okBtn = findScopedResultOkButton();
+                  const headerClose = findHeaderCloseIconControl() || findStaleOrderEntryCloseButton();
+                  const targetBtn = (okBtn && okClicks < 2)
+                    ? (okClicks++, okBtn)
+                    : (headerClose || okBtn);
                   if (targetBtn) {
                     singleClick(targetBtn);
                     actions++;
-                    await wait(140);
+                    await wait(160);
                   } else {
                     await wait(120);
                   }
@@ -3794,15 +4000,16 @@ object WebTerminalScripts {
                   if (!hasOpenOrderOrResultDialog()) {
                     return { cleared: true, actions: actions };
                   }
-                  const retryBtn =
-                    findScopedResultOkButton() ||
-                    findScopedDialogDismissControl() ||
-                    findStaleOrderEntryCloseButton();
+                  const retryOk = findScopedResultOkButton();
+                  const retryHeaderClose = findHeaderCloseIconControl() || findStaleOrderEntryCloseButton();
+                  const retryBtn = (retryOk && okClicks < 2)
+                    ? (okClicks++, retryOk)
+                    : (retryHeaderClose || retryOk);
                   if (retryBtn) {
                     singleClick(retryBtn);
                     actions++;
                   }
-                  await wait(110);
+                  await wait(120);
                 }
 
                 const stillOpen = hasOpenOrderOrResultDialog();
@@ -3904,7 +4111,7 @@ object WebTerminalScripts {
 
               async function openMT4NewOrderForRow(rowEl) {
                 const mwPanel = findMarketWatchPanel();
-                const rowTarget = (rowEl && isRenderedVisible(rowEl) ? rowEl : null) ||
+                const rowTarget = (rowEl && rowEl.isConnected && isRenderedVisible(rowEl) ? rowEl : null) ||
                   (mwPanel ? (findMT4MarketWatchSymbolRow(activeSymbolName, mwPanel, VERIFIED_ALIASES) || {}).element : null);
                 if (!rowTarget) return false;
                 lastSelectedSymbolElement = rowTarget;
@@ -3960,27 +4167,34 @@ object WebTerminalScripts {
                   if (isCancelled()) return;
                   currentTrade++;
                   setPhase('PREPARE', 'Preparing trade ' + currentTrade + '/' + COUNT + ' (' + DIRECTION + ' ' + LOT + ' ' + activeSymbolName + ')...');
-                  const preClear = await dismissBlockingDialogsAndConfirmClear(6, 1200);
-                  if (isCancelled()) return;
-                  if (!preClear.cleared) {
-                    const blockedMsg = 'Previous blocking dialog remained open before Trade ' + currentTrade + '/' + COUNT + ': ' + preClear.reason;
-                    emitTradeResult({
-                      status: 'REJECTED',
-                      platform: PLATFORM,
-                      requestedSymbol: SYMBOL,
-                      actualSymbol: activeSymbolName,
-                      direction: DIRECTION,
-                      lot: LOT,
-                      tradeIndex: currentTrade,
-                      tradeCount: COUNT,
-                      confirmedCount: confirmedCount,
-                      ticket: '',
-                      rawMessage: blockedMsg,
-                      retried: false
-                    });
-                    setPhase('ERROR', blockedMsg);
-                    log(blockedMsg, true, true);
-                    return;
+                  // On Trade 1, clear ONLY stale result/error dialogs (a clean ready/docked order ticket for activeSymbolName must not self-block).
+                  // On Trade 2..N, enforce strict clearance of BOTH prior result AND prior order dialogs before opening a fresh ticket.
+                  const needsStrictClear = currentTrade === 1
+                    ? hasOpenResultOrErrorBlockingDialog()
+                    : hasOpenOrderOrResultDialog();
+                  if (needsStrictClear) {
+                    const preClear = await dismissBlockingDialogsAndConfirmClear(6, 1200);
+                    if (isCancelled()) return;
+                    if (!preClear.cleared) {
+                      const blockedMsg = 'Previous blocking dialog remained open before Trade ' + currentTrade + '/' + COUNT + ': ' + preClear.reason;
+                      emitTradeResult({
+                        status: 'REJECTED',
+                        platform: PLATFORM,
+                        requestedSymbol: SYMBOL,
+                        actualSymbol: activeSymbolName,
+                        direction: DIRECTION,
+                        lot: LOT,
+                        tradeIndex: currentTrade,
+                        tradeCount: COUNT,
+                        confirmedCount: confirmedCount,
+                        ticket: '',
+                        rawMessage: blockedMsg,
+                        retried: false
+                      });
+                      setPhase('ERROR', blockedMsg);
+                      log(blockedMsg, true, true);
+                      return;
+                    }
                   }
                   ensureOrderPanelAndSubmit(0);
                 }
@@ -4235,20 +4449,6 @@ object WebTerminalScripts {
 
                       async function finishAcceptedAndCleanup(summary, statusText, newTicket) {
                         confirmedCount++;
-                        emitTradeResult({
-                          status: 'ACCEPTED',
-                          platform: PLATFORM,
-                          requestedSymbol: SYMBOL,
-                          actualSymbol: activeSymbolName,
-                          direction: DIRECTION,
-                          lot: LOT,
-                          tradeIndex: currentTrade,
-                          tradeCount: COUNT,
-                          confirmedCount: confirmedCount,
-                          ticket: newTicket,
-                          rawMessage: statusText || summary,
-                          retried: false
-                        });
                         setPhase('TRADE_CONFIRMED:' + currentTrade + ':' + COUNT, summary);
                         log(summary, false, false);
 
@@ -4256,12 +4456,40 @@ object WebTerminalScripts {
                         if (isCancelled()) return;
                         if (!postClear.cleared && currentTrade < COUNT) {
                           const haltErr = 'Trade ' + currentTrade + '/' + COUNT + ' confirmed, but blocking dialog remained open — halted Trade ' + (currentTrade + 1) + '/' + COUNT + '.';
+                          emitTradeResult({
+                            status: 'REJECTED',
+                            platform: PLATFORM,
+                            requestedSymbol: SYMBOL,
+                            actualSymbol: activeSymbolName,
+                            direction: DIRECTION,
+                            lot: LOT,
+                            tradeIndex: currentTrade + 1,
+                            tradeCount: COUNT,
+                            confirmedCount: confirmedCount,
+                            ticket: newTicket,
+                            rawMessage: haltErr,
+                            retried: false
+                          });
                           setPhase('ERROR', haltErr);
                           log(haltErr, true, true);
                           return;
                         }
 
                         if (currentTrade >= COUNT) {
+                          emitTradeResult({
+                            status: 'ACCEPTED',
+                            platform: PLATFORM,
+                            requestedSymbol: SYMBOL,
+                            actualSymbol: activeSymbolName,
+                            direction: DIRECTION,
+                            lot: LOT,
+                            tradeIndex: currentTrade,
+                            tradeCount: COUNT,
+                            confirmedCount: confirmedCount,
+                            ticket: newTicket,
+                            rawMessage: statusText || summary,
+                            retried: false
+                          });
                           const finalMsg = COUNT > 1
                             ? 'All ' + COUNT + '/' + COUNT + ' trades confirmed · ' + summary
                             : summary;
@@ -4473,7 +4701,8 @@ object WebTerminalScripts {
                 await wait(200);
                 if (isCancelled()) return;
 
-                waitForOrderControlsThenRun(0);
+                setPhase('SYMBOL_SELECTED', 'Selected ' + activeSymbolName);
+                schedule(executeSequentialTrades, 180);
               }
 
               function emitLiveBalanceSnapshotFromText(rawText) {

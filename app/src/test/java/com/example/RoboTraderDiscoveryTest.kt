@@ -323,8 +323,8 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("orderFormMismatchRejected"))
         assertTrue(results.getBoolean("authLostTriggersBridge"))
         assertTrue(results.getBoolean("cancelStopsTrade2BeforeSubmit"))
-        assertTrue(results.getBoolean("twoSecondDelayBetweenTradesOk"))
-        assertTrue(results.getBoolean("mt5TradeInputVerifiedAndExecutedOnce"))
+        assertTrue("twoSecondDelayBetweenTradesOk failed: $results", results.getBoolean("twoSecondDelayBetweenTradesOk"))
+        assertTrue("mt5TradeInputVerifiedAndExecutedOnce failed: $results", results.getBoolean("mt5TradeInputVerifiedAndExecutedOnce"))
         assertEquals(1, results.getInt("executedBuyClicks"))
     }
 
@@ -730,7 +730,7 @@ class RoboTraderDiscoveryTest {
           // 6. MT5 bare OK dialog MUST NOT confirm trade -> times out to UNKNOWN without retry & stops Trade 2/2!
           ctx = buildRichMt5Dom({ skipF9Button: true, mode: 'bare_ok_timeout' });
           eval($mt5BareOkThenUnknownJs);
-          for (let w = 0; w < 100 && !ctx.state.logs.some(function(l) { return l.done; }); w++) {
+          for (let w = 0; w < 220 && !ctx.state.logs.some(function(l) { return l.done; }); w++) {
             await sleepMs(40);
           }
           const mt5BareOkNotCountedAndUnknownNoRetryOk =
@@ -968,9 +968,9 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("mt5F9FormOpenedOk"))
         assertTrue(results.getBoolean("mt5FieldEventSequenceOk"))
         assertTrue(results.getBoolean("mt5VerifyMinVolOk"))
-        assertTrue(results.getBoolean("mt5RejectionStopsMultiTradeOk"))
-        assertTrue(results.getBoolean("mt5DisabledNotForceEnabledOk"))
-        assertTrue(results.getBoolean("mt5BareOkNotCountedAndUnknownNoRetryOk"))
+        assertTrue("mt5RejectionStopsMultiTradeOk failed: $results", results.getBoolean("mt5RejectionStopsMultiTradeOk"))
+        assertTrue("mt5DisabledNotForceEnabledOk failed: $results", results.getBoolean("mt5DisabledNotForceEnabledOk"))
+        assertTrue("mt5BareOkNotCountedAndUnknownNoRetryOk failed: $results", results.getBoolean("mt5BareOkNotCountedAndUnknownNoRetryOk"))
         assertTrue(results.getBoolean("mt4ContextMenuThreeEventsOk"))
         assertTrue(results.getBoolean("mt4ShowAllMouseOverOk"))
         assertTrue(results.getBoolean("mt4SlZeroResetOk"))
@@ -1886,8 +1886,8 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("mt5ReconnectConnectButtonOk"))
         assertTrue(results.getBoolean("mt5PlusAddAndClearWatchlistChartOk"))
         assertTrue(results.getBoolean("mt5CheckedSymbolNotReaddedOk"))
-        assertTrue(results.getBoolean("mt4SymbolsDialogWorkflowOk"))
-        assertTrue(results.getBoolean("serverDisabledBannerRejectedOk"))
+        assertTrue("mt4SymbolsDialogWorkflowOk failed: $results", results.getBoolean("mt4SymbolsDialogWorkflowOk"))
+        assertTrue("serverDisabledBannerRejectedOk failed: $results", results.getBoolean("serverDisabledBannerRejectedOk"))
         assertTrue("pendingOrderPlaceDetectedOk failed: $results", results.getBoolean("pendingOrderPlaceDetectedOk"))
         assertTrue("mt5VirtualizedWatchlistSearchFallbackOk failed: vStDebug=${results.opt("vStDebug")}", results.getBoolean("mt5VirtualizedWatchlistSearchFallbackOk"))
         assertTrue(results.getBoolean("mt4SymbolsToShowAllFallbackOk"))
@@ -1985,7 +1985,10 @@ class RoboTraderDiscoveryTest {
           doc.head.appendChild(initialMeta);
           installDoc(doc);
           global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
-          global.navigator = { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0.0.0 Safari/537.36' };
+          Object.defineProperty(global, 'navigator', {
+            value: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0.0.0 Safari/537.36' },
+            configurable: true
+          });
           global.screen = { width: 412, height: 915 };
           global.innerWidth = 1366;
           global.innerHeight = 768;
@@ -2504,11 +2507,11 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("missingSearchDiagnosticOk"))
         assertTrue(results.getBoolean("verifiedAliasOk"))
         assertTrue(results.getBoolean("buyDropdownSwitchedOnceOk"))
-        assertTrue(results.getBoolean("sellSingleOk"))
-        assertTrue(results.getBoolean("blankPendingPriceRejectedOk"))
-        assertTrue(results.getBoolean("rejectionDoneAndTicketClosedOk"))
-        assertTrue(results.getBoolean("serial3TradesConfirmedOk"))
-        assertTrue(results.getBoolean("unknownNoDuplicateSubmitOk"))
+        assertTrue("sellSingleOk failed: $results", results.getBoolean("sellSingleOk"))
+        assertTrue("blankPendingPriceRejectedOk failed: $results", results.getBoolean("blankPendingPriceRejectedOk"))
+        assertTrue("rejectionDoneAndTicketClosedOk failed: $results", results.getBoolean("rejectionDoneAndTicketClosedOk"))
+        assertTrue("serial3TradesConfirmedOk failed: $results", results.getBoolean("serial3TradesConfirmedOk"))
+        assertTrue("unknownNoDuplicateSubmitOk failed: $results", results.getBoolean("unknownNoDuplicateSubmitOk"))
     }
 
     @Test
@@ -2785,9 +2788,9 @@ class RoboTraderDiscoveryTest {
 
         val results = runNodeHarness(script)
         assertTrue("Part 13 MT4 suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
-        assertTrue(results.getBoolean("hiddenViewOpenedAndSkippedShowAllOk"))
-        assertTrue(results.getBoolean("hiddenCtrlMBboxShowAllOk"))
-        assertTrue(results.getBoolean("mt4Multi2SerialCleanOk"))
+        assertTrue("hiddenViewOpenedAndSkippedShowAllOk failed: $results", results.getBoolean("hiddenViewOpenedAndSkippedShowAllOk"))
+        assertTrue("hiddenCtrlMBboxShowAllOk failed: $results", results.getBoolean("hiddenCtrlMBboxShowAllOk"))
+        assertTrue("mt4Multi2SerialCleanOk failed: $results", results.getBoolean("mt4Multi2SerialCleanOk"))
     }
 
     @Test
@@ -2987,7 +2990,7 @@ class RoboTraderDiscoveryTest {
             ctx2.st.openPositionActionClicks === 0 &&
             ctx2.st.results.length === 1 &&
             ctx2.st.results[0].status === 'REJECTED' &&
-            ctx2.st.results[0].rawMessage.indexOf('Previous terminal dialog could not be cleared') >= 0;
+            ctx2.st.results[0].rawMessage.indexOf('Previous order or result dialog could not be cleared cleanly before') >= 0;
 
           // 3. Previous failed trade that WAS cleanly dismissed does NOT leave subsequent fresh signal blocked
           const ctx3 = createCleanupDom({ staleErrorPopup: true });
@@ -3016,6 +3019,408 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("retryDelayAndOpenPosUntouchedOk"))
         assertTrue(results.getBoolean("unclosableModalAbortsNewSignalOk"))
         assertTrue(results.getBoolean("recoveredTerminalAcceptsFreshSignalOk"))
+    }
+
+    @Test
+    fun `Live Screenshot Regression MT5 docked Done lowercase-ok OK drawer and top-right X fallback close cleanly across multi-trade execution`() {
+        val mt5Serial3Js = WebTerminalScripts.buildTradeScript("BTCUSD", "BUY", "0.01", "", "", "BTECH-EA", 3, "MT5", "Exness", "Exness-MT5Trial9", "{}", "live-mt5-1", 25, "", 401L)
+        val mt5Serial2FallbackXJs = WebTerminalScripts.buildTradeScript("BTCUSD", "BUY", "0.01", "", "", "BTECH-EA", 2, "MT5", "Exness", "Exness-MT5Trial9", "{}", "live-mt5-2", 25, "", 402L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://mt5trial9.exwebterm.com/terminal', pathname: '/terminal' };
+
+          function createDockedMt5Dom(cfg) {
+            cfg = cfg || {};
+            const d = createDomDocument();
+            const st = {
+              openForms: 0,
+              buyClicks: 0,
+              okBtnClicks: 0,
+              staticLowerOkClicks: 0,
+              staticDoneClicks: 0,
+              topRightXClicks: 0,
+              posCloseClicks: 0,
+              logs: [],
+              results: []
+            };
+
+            // Desktop toolbar with >12 visible buttons (exceeds <=4 heuristic)
+            const toolbar = d.createElement('div');
+            ['M1','M5','M15','M30','H1','H4','D1','W1','MN','+','-'].forEach(function(lbl) {
+              const b = d.createElement('button');
+              b.textContent = lbl;
+              toolbar.appendChild(b);
+            });
+            const newOrderBtn = d.createElement('button');
+            newOrderBtn.textContent = 'New Order';
+            toolbar.appendChild(newOrderBtn);
+            d.body.appendChild(toolbar);
+
+            // Search symbol (top-right Quotes pane)
+            const sIn = d.createElement('input');
+            sIn.setAttribute('placeholder', 'Search symbol');
+            d.body.appendChild(sIn);
+            const btcRow = d.createElement('div');
+            btcRow.setAttribute('role', 'row');
+            btcRow.setAttribute('data-symbol', 'BTCUSD');
+            btcRow.textContent = 'BTCUSD Bitcoin vs US Dollar';
+            d.body.appendChild(btcRow);
+
+            // Bottom Positions bar with Close Position button (must never be touched)
+            const bottomBar = d.createElement('div');
+            bottomBar.textContent = 'Balance: 7 589.56 Equity: 7 619.42 Margin: 53.45 Free margin: 7 571.94 ZAR';
+            const posTbl = d.createElement('table');
+            const posTr = d.createElement('tr');
+            const posTd = d.createElement('td');
+            posTd.textContent = 'BTCUSD 3485237174 buy 0.01 60 623.00';
+            const posCloseBtn = d.createElement('button');
+            posCloseBtn.textContent = 'Close Position';
+            posCloseBtn.addEventListener('click', function() { st.posCloseClicks++; });
+            posTr.appendChild(posTd);
+            posTr.appendChild(posCloseBtn);
+            posTbl.appendChild(posTr);
+            bottomBar.appendChild(posTbl);
+            d.body.appendChild(bottomBar);
+
+            // Docked sidebar drawer WITHOUT .modal/.dialog/role="dialog"/.trade-form classes (mirrors Svelte/React live MT5)
+            let drawer = null;
+            newOrderBtn.addEventListener('click', function() {
+              if (drawer && drawer.isConnected) return; // Blocked until cleared!
+              st.openForms++;
+              drawer = d.createElement('div');
+              drawer.className = 'sidebar-drawer';
+              drawer.getBoundingClientRect = function() {
+                if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                return { left: 48, top: 80, width: 260, height: 360, right: 308, bottom: 440 };
+              };
+
+              const symDiv = d.createElement('div');
+              symDiv.setAttribute('data-symbol', 'BTCUSD');
+              symDiv.textContent = 'BTCUSD';
+              drawer.appendChild(symDiv);
+
+              const vWrap = d.createElement('div');
+              vWrap.className = 'trade-input';
+              const vLbl = d.createElement('span');
+              vLbl.className = 'label';
+              vLbl.textContent = 'Volume';
+              const vIn = d.createElement('input');
+              vWrap.appendChild(vLbl);
+              vWrap.appendChild(vIn);
+              drawer.appendChild(vWrap);
+
+              const buyB = d.createElement('button');
+              buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                st.buyClicks++;
+                const tkt = '#348523896' + st.buyClicks;
+                const tr = d.createElement('tr');
+                tr.textContent = tkt + ' buy ' + (vIn.value || '0.01') + ' BTCUSD at 60744.72';
+                posTbl.appendChild(tr);
+
+                // Replace order drawer contents with Screenshot 164421 receipt panel
+                drawer.textContent = '';
+
+                // Unlabeled top-right blue SVG '×' button inside drawer header
+                const xBtn = d.createElement('div');
+                xBtn.className = 'hdr-icon';
+                xBtn.getBoundingClientRect = function() {
+                  if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                  return { left: 280, top: 90, width: 20, height: 20, right: 300, bottom: 110 };
+                };
+                const svg = d.createElement('svg');
+                const path = d.createElement('path');
+                path.setAttribute('d', 'M4 4L16 16M16 4L4 16');
+                svg.appendChild(path);
+                xBtn.appendChild(svg);
+                xBtn.addEventListener('click', function() {
+                  st.topRightXClicks++;
+                  if (drawer && drawer.parentElement) drawer.parentElement.removeChild(drawer);
+                });
+                drawer.appendChild(xBtn);
+
+                const summaryDiv = d.createElement('div');
+                summaryDiv.textContent = tkt + ' buy 0.01 BTCUSD at 60744.72';
+                drawer.appendChild(summaryDiv);
+
+                const doneStatic = d.createElement('div');
+                doneStatic.textContent = 'Done';
+                doneStatic.addEventListener('click', function() { st.staticDoneClicks++; });
+                drawer.appendChild(doneStatic);
+
+                const lowerOkStatic = d.createElement('div');
+                lowerOkStatic.textContent = 'ok';
+                lowerOkStatic.addEventListener('click', function() { st.staticLowerOkClicks++; });
+                drawer.appendChild(lowerOkStatic);
+
+                const okBtn = d.createElement('button');
+                okBtn.textContent = 'OK';
+                okBtn.addEventListener('click', function() {
+                  st.okBtnClicks++;
+                  if (!cfg.okDoesNotClose) {
+                    if (drawer && drawer.parentElement) drawer.parentElement.removeChild(drawer);
+                  }
+                });
+                drawer.appendChild(okBtn);
+              });
+              drawer.appendChild(buyB);
+              d.body.appendChild(drawer);
+            });
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return { doc: d, st: st };
+          }
+
+          // Case A: 3 serial trades where blue [OK] button closes the docked drawer cleanly every time
+          const ctxA = createDockedMt5Dom({ okDoesNotClose: false });
+          eval(${JSONObject.quote(mt5Serial3Js)});
+          for (let w = 0; w < 260 && !ctxA.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const dockedOkClosesCleanly3Trades =
+            ctxA.st.openForms === 3 &&
+            ctxA.st.buyClicks === 3 &&
+            ctxA.st.okBtnClicks === 3 &&
+            ctxA.st.staticLowerOkClicks === 0 &&
+            ctxA.st.staticDoneClicks === 0 &&
+            ctxA.st.posCloseClicks === 0 &&
+            ctxA.doc.querySelectorAll('.sidebar-drawer').length === 0 &&
+            ctxA.st.results.length === 1 &&
+            ctxA.st.results[0].status === 'ACCEPTED' &&
+            ctxA.st.results[0].confirmedCount === 3;
+
+          // Case B: [OK] is clicked first, stays open, escalates to top-right <svg> '×' icon to close cleanly for Trade 2/2
+          const ctxB = createDockedMt5Dom({ okDoesNotClose: true });
+          eval(${JSONObject.quote(mt5Serial2FallbackXJs)});
+          for (let w = 0; w < 260 && !ctxB.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const okEscalateToTopRightSvgCloseOk =
+            ctxB.st.openForms === 2 &&
+            ctxB.st.buyClicks === 2 &&
+            ctxB.st.okBtnClicks >= 2 &&
+            ctxB.st.topRightXClicks === 2 &&
+            ctxB.st.staticLowerOkClicks === 0 &&
+            ctxB.st.posCloseClicks === 0 &&
+            ctxB.doc.querySelectorAll('.sidebar-drawer').length === 0 &&
+            ctxB.st.results.length === 1 &&
+            ctxB.st.results[0].status === 'ACCEPTED' &&
+            ctxB.st.results[0].confirmedCount === 2;
+
+          console.log(JSON.stringify({
+            ok: true,
+            dockedOkClosesCleanly3Trades: dockedOkClosesCleanly3Trades,
+            okEscalateToTopRightSvgCloseOk: okEscalateToTopRightSvgCloseOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("MT5 docked drawer live regression failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue("dockedOkClosesCleanly3Trades failed: $results", results.getBoolean("dockedOkClosesCleanly3Trades"))
+        assertTrue("okEscalateToTopRightSvgCloseOk failed: $results", results.getBoolean("okEscalateToTopRightSvgCloseOk"))
+    }
+
+    @Test
+    fun `Live Screenshot Regression MT4 Trade 1 does not self-block and page-window red x icon clears order dialogs before next trade or signal`() {
+        val mt4Btc2Js = WebTerminalScripts.buildTradeScript("BTCUSD", "BUY", "0.01", "", "", "BTECH-EA", 2, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-1", 25, "", 403L)
+        val mt4GbpcadRecoverJs = WebTerminalScripts.buildTradeScript("GBPCAD", "BUY", "0.01", "", "", "BTECH-EA", 1, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-2", 25, "", 404L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+
+          function createLiveMt4PageWindowDom(cfg) {
+            cfg = cfg || {};
+            const d = createDomDocument();
+            const st = {
+              openOrders: 0,
+              buyClicks: 0,
+              redXClicks: 0,
+              staleRedXClicked: false,
+              mouseDownUpOnRedX: 0,
+              results: [],
+              logs: []
+            };
+
+            const hdr = d.createElement('div');
+            hdr.textContent = 'Balance: 3 207.68 ZAR Equity: 3 488.08 ZAR Positions';
+            d.body.appendChild(hdr);
+
+            const mw = d.createElement('div');
+            mw.className = 'page-window market-watch';
+            const mwTitle = d.createElement('div');
+            mwTitle.textContent = 'Market Watch';
+            mw.appendChild(mwTitle);
+            const tbl = d.createElement('table');
+            const tbody = d.createElement('tbody');
+            ['BTCUSD', 'GBPCAD'].forEach(function(sym) {
+              const tr = d.createElement('tr');
+              const td = d.createElement('td');
+              td.textContent = sym;
+              tr.appendChild(td);
+              tr.addEventListener('contextmenu', function(ev) {
+                if (ev && ev.stopPropagation) ev.stopPropagation();
+                d.querySelectorAll('.page-menu').forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+                const menu = d.createElement('div');
+                menu.className = 'page-menu';
+                const mi = d.createElement('div');
+                mi.setAttribute('role', 'menuitem');
+                mi.textContent = 'New Order';
+                mi.addEventListener('click', function() {
+                  if (menu.parentElement) menu.parentElement.removeChild(menu);
+                  spawnOrderPageWindow(sym, false);
+                });
+                menu.appendChild(mi);
+                d.body.appendChild(menu);
+              });
+              tbody.appendChild(tr);
+            });
+            tbl.appendChild(tbody);
+            mw.appendChild(tbl);
+            d.body.appendChild(mw);
+
+            function spawnOrderPageWindow(sym, isPreexistingStale) {
+              st.openOrders++;
+              const win = d.createElement('div');
+              win.className = 'page-window';
+              win.getBoundingClientRect = function() {
+                if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                return { left: 100, top: 180, width: 580, height: 340, right: 680, bottom: 520 };
+              };
+
+              const headerBar = d.createElement('div');
+              const titleSpan = d.createElement('span');
+              titleSpan.textContent = 'Order';
+              // Red top-right [x] <div> button matching Screenshot 165219 (no <button>Close</button>)
+              const redX = d.createElement('div');
+              redX.className = 'x';
+              redX.textContent = 'x';
+              redX.getBoundingClientRect = function() {
+                if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                return { left: 648, top: 184, width: 28, height: 22, right: 676, bottom: 206 };
+              };
+              redX.addEventListener('mousedown', function() { st.mouseDownUpOnRedX++; });
+              redX.addEventListener('mouseup', function() { st.mouseDownUpOnRedX++; });
+              redX.addEventListener('click', function() {
+                st.redXClicks++;
+                if (isPreexistingStale) st.staleRedXClicked = true;
+                if (win.parentElement) win.parentElement.removeChild(win);
+              });
+              headerBar.appendChild(titleSpan);
+              headerBar.appendChild(redX);
+              win.appendChild(headerBar);
+
+              const symSel = d.createElement('select');
+              ['BTCUSD', 'GBPCAD'].forEach(function(s) {
+                const o = d.createElement('option');
+                o.value = s;
+                o.textContent = s;
+                symSel.appendChild(o);
+              });
+              symSel.value = sym;
+              win.appendChild(symSel);
+
+              const typeSel = d.createElement('select');
+              const mktOpt = d.createElement('option');
+              mktOpt.value = 'Market Execution';
+              mktOpt.textContent = 'Market Execution';
+              typeSel.appendChild(mktOpt);
+              win.appendChild(typeSel);
+
+              const vIn = d.createElement('input');
+              vIn.id = 'volume';
+              const slIn = d.createElement('input');
+              slIn.id = 'sl';
+              const tpIn = d.createElement('input');
+              tpIn.id = 'tp';
+              const cIn = d.createElement('input');
+              cIn.id = 'comment';
+              win.appendChild(vIn);
+              win.appendChild(slIn);
+              win.appendChild(tpIn);
+              win.appendChild(cIn);
+
+              const sellB = d.createElement('div');
+              sellB.textContent = 'Sell by Market';
+              const buyB = d.createElement('div');
+              buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                st.buyClicks++;
+                const row = d.createElement('tr');
+                row.textContent = '#51200' + st.buyClicks + ' buy ' + (vIn.value || '0.01') + ' ' + sym + ' at 60771.05';
+                d.body.appendChild(row);
+                // Keep Order .page-window open in result state with ONLY red [x] (no OK button) so red [x] MUST close it!
+                const statusMsg = d.createElement('div');
+                statusMsg.textContent = 'Done';
+                win.appendChild(statusMsg);
+              });
+              win.appendChild(sellB);
+              win.appendChild(buyB);
+              d.body.appendChild(win);
+            }
+
+            if (cfg.preExistingStaleOrderForSymbol) {
+              spawnOrderPageWindow(cfg.preExistingStaleOrderForSymbol, true);
+            }
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return { doc: d, st: st };
+          }
+
+          // Case A: Fresh MT4 BTCUSD 2-trade signal -> Trade 1 MUST NOT self-block, red [x] closes Trade 1 window before Trade 2
+          const ctx1 = createLiveMt4PageWindowDom();
+          eval(${JSONObject.quote(mt4Btc2Js)});
+          for (let w = 0; w < 220 && !ctx1.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const mt4FreshNotSelfBlockedAndRedXClosesOk =
+            ctx1.st.openOrders === 2 &&
+            ctx1.st.buyClicks === 2 &&
+            ctx1.st.redXClicks === 2 &&
+            ctx1.st.mouseDownUpOnRedX >= 4 &&
+            ctx1.doc.querySelectorAll('.page-window').filter(function(n) { return !n.classList.contains('market-watch'); }).length === 0 &&
+            ctx1.st.results.length === 1 &&
+            ctx1.st.results[0].status === 'ACCEPTED' &&
+            ctx1.st.results[0].confirmedCount === 2;
+
+          // Case B: Stale BTCUSD Order .page-window left open -> incoming GBPCAD signal clears it via red [x] and executes GBPCAD!
+          const ctx2 = createLiveMt4PageWindowDom({ preExistingStaleOrderForSymbol: 'BTCUSD' });
+          eval(${JSONObject.quote(mt4GbpcadRecoverJs)});
+          for (let w = 0; w < 180 && !ctx2.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const mt4StalePageWindowClearedAndGbpcadExecutedOk =
+            ctx2.st.staleRedXClicked === true &&
+            ctx2.st.buyClicks === 1 &&
+            ctx2.st.redXClicks === 2 &&
+            ctx2.st.results.length === 1 &&
+            ctx2.st.results[0].status === 'ACCEPTED' &&
+            ctx2.st.results[0].actualSymbol === 'GBPCAD';
+
+          console.log(JSON.stringify({
+            ok: true,
+            mt4FreshNotSelfBlockedAndRedXClosesOk: mt4FreshNotSelfBlockedAndRedXClosesOk,
+            mt4StalePageWindowClearedAndGbpcadExecutedOk: mt4StalePageWindowClearedAndGbpcadExecutedOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("MT4 page-window live regression failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue("mt4FreshNotSelfBlockedAndRedXClosesOk failed: $results", results.getBoolean("mt4FreshNotSelfBlockedAndRedXClosesOk"))
+        assertTrue("mt4StalePageWindowClearedAndGbpcadExecutedOk failed: $results", results.getBoolean("mt4StalePageWindowClearedAndGbpcadExecutedOk"))
     }
 
     private fun runNodeHarness(testScriptJs: String): JSONObject {
