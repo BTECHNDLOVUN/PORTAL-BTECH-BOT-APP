@@ -827,25 +827,18 @@ object WebTerminalScripts {
         function openMT4ContextMenu(target) {
           if (!target && typeof document === 'undefined') return false;
           try {
-            // RoboTrader Part 2 A exact Market Watch first-row selector, falling back to first visible row or panel
-            let dispatchTarget = null;
-            try {
-              dispatchTarget = document.querySelector(
-                'body > div.page-window.market-watch.compact > div > div.b > div.page-block > div > table > tbody > tr:nth-child(1)'
-              );
-            } catch (_) {}
-            if (!dispatchTarget && target && target.querySelector) {
-              dispatchTarget = target.querySelector("table tbody tr:first-child, tr, [role='row']") || target;
-            }
-            if (!dispatchTarget) dispatchTarget = target;
-            if (!dispatchTarget) return false;
+            const panelTarget = isRenderedVisible(target)
+              ? target
+              : (findMarketWatchPanel() || target);
+            if (!panelTarget) return false;
+            try { if (typeof panelTarget.scrollIntoView === 'function') panelTarget.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
 
-            const view = getViewFor(dispatchTarget);
-            const rect = dispatchTarget.getBoundingClientRect ? dispatchTarget.getBoundingClientRect() : null;
-            const cx = rect ? (rect.left + Math.min(40, Math.max(1, rect.width / 2))) : 0;
-            const cy = rect ? (rect.top + Math.min(20, Math.max(1, rect.height / 2))) : 0;
+            const view = getViewFor(panelTarget);
+            const rect = panelTarget.getBoundingClientRect ? panelTarget.getBoundingClientRect() : null;
+            const cx = rect ? (rect.left + Math.max(8, rect.width / 2)) : 0;
+            const cy = rect ? (rect.top + Math.max(8, rect.height / 2)) : 0;
 
-            dispatchTarget.dispatchEvent(
+            panelTarget.dispatchEvent(
               new view.MouseEvent('mousedown', {
                 bubbles: true,
                 cancelable: false,
@@ -857,7 +850,7 @@ object WebTerminalScripts {
                 clientY: cy
               })
             );
-            dispatchTarget.dispatchEvent(
+            panelTarget.dispatchEvent(
               new view.MouseEvent('mouseup', {
                 bubbles: true,
                 cancelable: false,
@@ -869,7 +862,7 @@ object WebTerminalScripts {
                 clientY: cy
               })
             );
-            dispatchTarget.dispatchEvent(
+            panelTarget.dispatchEvent(
               new view.MouseEvent('contextmenu', {
                 bubbles: true,
                 cancelable: true,
@@ -887,33 +880,50 @@ object WebTerminalScripts {
           }
         }
 
-        // RoboTrader Part 2 B: preserves positional 7th-child check ONLY when visible label reads "Show All",
-        // otherwise locates visible "Show All" menu item within open context menus first before broad search.
-        function findMT4ShowAllMenuItem() {
+        function openMT4RowContextMenu(rowElement) {
+          if (!rowElement || !isRenderedVisible(rowElement)) return false;
           try {
-            const positional = document.querySelector(
-              'body > div.page-menu.context.expanded > div > div > span.box > span > div:nth-child(7)'
-            );
-            if (positional && isRenderedVisible(positional)) {
-              const txt = (positional.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-              if (txt === 'show all') return positional;
-            }
-          } catch (_) {}
+            try { if (typeof rowElement.scrollIntoView === 'function') rowElement.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+            const view = getViewFor(rowElement);
+            const rect = rowElement.getBoundingClientRect ? rowElement.getBoundingClientRect() : null;
+            const cx = rect ? (rect.left + Math.max(4, rect.width / 2)) : 0;
+            const cy = rect ? (rect.top + Math.max(4, rect.height / 2)) : 0;
+            rowElement.dispatchEvent(new view.MouseEvent('mousedown', {
+              bubbles: true, cancelable: false, composed: true, view: view, button: 2, buttons: 2, clientX: cx, clientY: cy
+            }));
+            rowElement.dispatchEvent(new view.MouseEvent('mouseup', {
+              bubbles: true, cancelable: false, composed: true, view: view, button: 2, buttons: 0, clientX: cx, clientY: cy
+            }));
+            rowElement.dispatchEvent(new view.MouseEvent('contextmenu', {
+              bubbles: true, cancelable: true, composed: true, view: view, button: 2, buttons: 0, clientX: cx, clientY: cy
+            }));
+            return true;
+          } catch (_) {
+            return false;
+          }
+        }
+
+        // Matches visible "Show All" label inside open context menus (never hardcoded positional div:nth-child(7)).
+        function findMT4ShowAllMenuItem() {
           return (
-            findExactVisibleText('Show All', ".page-menu [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] [role='menuitem'], [role='menu'] span, [role='menu'] div") ||
-            findExactVisibleText('Show All', "[role='menuitem'], button, li, a") ||
-            findExactVisibleText('Show All', "span, div")
+            findExactVisibleText('Show All', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu li, .mt4-ctx-menu li, [role='menu'] li, .page-menu button, .mt4-ctx-menu button, [role='menu'] button, .page-menu span, .page-menu div, .mt4-ctx-menu span, .mt4-ctx-menu div") ||
+            findExactVisibleText('Show All', "[role='menuitem'], button, li, a")
+          );
+        }
+
+        function findMT4NewOrderMenuItem() {
+          return (
+            findExactVisibleText('New Order', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu li, .mt4-ctx-menu li, [role='menu'] li, .page-menu button, .mt4-ctx-menu button, [role='menu'] button, .page-menu span, .page-menu div, .mt4-ctx-menu span, .mt4-ctx-menu div") ||
+            findExactVisibleText('New Order', "[role='menuitem']")
           );
         }
 
         function findMT4SymbolsMenuItem() {
           return (
-            findExactVisibleText('Symbols', ".page-menu [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] [role='menuitem'], [role='menu'] span, [role='menu'] div") ||
-            findExactVisibleText('Symbols...', ".page-menu [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] [role='menuitem'], [role='menu'] span, [role='menu'] div") ||
+            findExactVisibleText('Symbols', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] span, [role='menu'] div") ||
+            findExactVisibleText('Symbols...', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] span, [role='menu'] div") ||
             findExactVisibleText('Symbols', "[role='menuitem'], button, li, a") ||
-            findExactVisibleText('Symbols...', "[role='menuitem'], button, li, a") ||
-            findExactVisibleText('Symbols', "span, div") ||
-            findExactVisibleText('Symbols...', "span, div")
+            findExactVisibleText('Symbols...', "[role='menuitem'], button, li, a")
           );
         }
 
@@ -1072,17 +1082,26 @@ object WebTerminalScripts {
 
         function findMarketWatchPanel() {
           try {
-            const exactMw = document.querySelector('body > div.page-window.market-watch.compact');
+            const exactMw = document.querySelector('body > div.page-window.market-watch');
             if (exactMw && isRenderedVisible(exactMw)) return exactMw;
           } catch (_) {}
 
+          const explicitPanel = deepAll("[class*='market-watch' i], [data-testid*='market-watch' i], [aria-label*='Market Watch' i]")
+            .find(function(el) {
+              if (!isRenderedVisible(el)) return false;
+              const tag = (el.tagName || '').toUpperCase();
+              if (tag === 'BUTTON' || tag === 'A' || (el.getAttribute && el.getAttribute('role') === 'menuitem')) return false;
+              return true;
+            });
+          if (explicitPanel) return explicitPanel;
+
           const marketWatchLabel =
-            deepAll("[class*='market-watch' i], [data-testid*='market-watch' i], [aria-label*='Market Watch' i]").find(isRenderedVisible) ||
-            findExactVisibleText('Market Watch', "div, span, button, label, th, h1, h2, h3, [role='heading']") ||
+            findExactVisibleText('Market Watch', "div, span, label, th, h1, h2, h3, [role='heading']") ||
             null;
+          if (!marketWatchLabel) return null;
 
           let marketWatchPanel = marketWatchLabel;
-          for (let i = 0; i < 5 && marketWatchPanel; i++) {
+          for (let i = 0; i < 5 && marketWatchPanel && marketWatchPanel !== document.body; i++) {
             if (marketWatchPanel.querySelectorAll) {
               const rowCount = marketWatchPanel.querySelectorAll("tr, [role='row'], [data-symbol], li, [class*='symbol']").length;
               const panelText = (marketWatchPanel.textContent || '').toLowerCase();
@@ -1092,7 +1111,66 @@ object WebTerminalScripts {
             }
             marketWatchPanel = marketWatchPanel.parentElement;
           }
-          return marketWatchPanel || marketWatchLabel;
+          if (marketWatchPanel && marketWatchPanel !== document.body && isRenderedVisible(marketWatchPanel)) {
+            return marketWatchPanel;
+          }
+          return isRenderedVisible(marketWatchLabel) ? marketWatchLabel : null;
+        }
+
+        async function openHiddenMarketWatch(waitFn, pollMs) {
+          let panel = findMarketWatchPanel();
+          if (panel) return panel;
+
+          // 1. Direct Market Watch toolbar / toggle button
+          const mwToggle = deepAll('button, [role="button"], [title*="Market Watch" i], [aria-label*="Market Watch" i], a')
+            .filter(isVisible)
+            .find(function(b) {
+              const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || ''))
+                .replace(/\s+/g, ' ').trim().toLowerCase();
+              return t.includes('market watch');
+            });
+          if (mwToggle) {
+            singleClick(mwToggle);
+            await waitFn(Math.min(350, (pollMs || 250) + 80));
+            panel = findMarketWatchPanel();
+            if (panel) return panel;
+          }
+
+          // 2. Desktop "View" menu -> "Market Watch" menu item
+          const viewMenuTrigger =
+            findExactVisibleText('View', "button, a, [role='button'], [role='menuitem'], [role='tab'], span, div") ||
+            null;
+          if (viewMenuTrigger) {
+            singleClick(viewMenuTrigger);
+            await waitFn(Math.min(250, (pollMs || 250) + 50));
+            const viewMwItem =
+              findExactVisibleText('Market Watch', "[role='menuitem'], .page-menu li, .page-menu div, .page-menu span, [role='menu'] li, [role='menu'] div, button, a") ||
+              deepAll("[role='menuitem'], li, button, a").filter(isVisible).find(function(n) {
+                return ((n.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()).startsWith('market watch');
+              });
+            if (viewMwItem) {
+              singleClick(viewMwItem);
+              await waitFn(Math.min(350, (pollMs || 250) + 80));
+              panel = findMarketWatchPanel();
+              if (panel) return panel;
+            }
+          }
+
+          // 3. MT4 desktop keyboard shortcut Ctrl+M
+          try {
+            const view = typeof window !== 'undefined' ? window : null;
+            const target = document.body || document;
+            if (target && view && typeof view.KeyboardEvent === 'function') {
+              target.dispatchEvent(new view.KeyboardEvent('keydown', {
+                key: 'm', code: 'KeyM', keyCode: 77, which: 77, ctrlKey: true, bubbles: true, cancelable: true, composed: true
+              }));
+              await waitFn(Math.min(350, (pollMs || 250) + 80));
+              panel = findMarketWatchPanel();
+              if (panel) return panel;
+            }
+          } catch (_) {}
+
+          return findMarketWatchPanel();
         }
 
         function discoverAllBrokerSymbols(scopeRoot) {
@@ -1511,11 +1589,17 @@ object WebTerminalScripts {
     /**
      * Generates JS that cancels any active discovery/order run and clears scheduled JS timers.
      */
-    fun buildCancelTradeScript(): String {
+    fun buildCancelTradeScript(kotlinRunId: Long = 0L): String {
         return """
             (function() {
+              if ($kotlinRunId > 0 && window.__btechActiveKotlinRunId && window.__btechActiveKotlinRunId !== $kotlinRunId) {
+                return false;
+              }
               window.__btechTradeCancelled = true;
               window.__btechTradeRunId = (window.__btechTradeRunId || 0) + 1;
+              window.__btechDiscoveryRunning = false;
+              window.__btechOrderTicketOpen = false;
+              window.__btechCurrentStage = 'CANCELLED';
               if (Array.isArray(window.__btechTradeTimers)) {
                 window.__btechTradeTimers.forEach(function(id) {
                   try { clearTimeout(id); } catch (_) {}
@@ -1529,6 +1613,69 @@ object WebTerminalScripts {
               }
               window.__btechTradeWaitResolvers = [];
               return true;
+            })();
+        """.trimIndent()
+    }
+
+    /**
+     * Lightweight O(k) heartbeat probe executed on demand or on a 4s interval.
+     * Proves JS thread liveness and captures structured terminal health without wildcard body scans.
+     */
+    fun buildHeartbeatProbeScript(expectedPlatform: String = ""): String {
+        val safePlat = JSONObject.quote(expectedPlatform.uppercase())
+        return """
+            (function() {
+              try {
+                $DEEP_DOM_HELPERS
+                const EXPECTED_PLATFORM = $safePlat;
+                const href = String((window.location && window.location.href) || '');
+                const readyState = String((typeof document !== 'undefined' && document.readyState) || '');
+                const domReady = readyState === 'interactive' || readyState === 'complete';
+                const hasBodyChildren = !!(typeof document !== 'undefined' && document.body && document.body.children && document.body.children.length > 0);
+                const terminalLoaded = domReady && !!href && !/^about:blank$/i.test(href) && hasBodyChildren;
+                const rawText = collectDeepText();
+                const lower = rawText.toLowerCase();
+                const hasPwd = queryDeepAll("input[type='password'], input[name='password'], #password").filter(isVisible).length > 0;
+                const isReconnect = hasMt5ReconnectScreen(lower, hasPwd);
+                const verifiedSession = terminalLoaded && !hasPwd && !isReconnect && hasVerifiedAccountSession(rawText, lower, EXPECTED_PLATFORM);
+                const hasVol = queryDeepAll("#volume, input[name='volume'], .trade-form, .trade-input").filter(isRenderedVisible).length > 0;
+                const hasOrderBtn = queryDeepAll("button, [role='button']").filter(isRenderedVisible).some(function(b) {
+                  const t = (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  return t === 'buy by market' || t === 'sell by market';
+                });
+                const orderTicketOpen = !!(window.__btechOrderTicketOpen || hasVol || hasOrderBtn);
+                const discoveryRunning = !!(window.__btechDiscoveryRunning && window.__btechTradeCancelled !== true);
+                const detectedPlat = detectLoadedTerminalPlatform() || EXPECTED_PLATFORM;
+                return JSON.stringify({
+                  webview_alive: true,
+                  javascript_running: true,
+                  terminal_loaded: terminalLoaded,
+                  authenticated: verifiedSession,
+                  dom_ready: domReady,
+                  symbol_discovery_running: discoveryRunning,
+                  order_ticket_open: orderTicketOpen,
+                  current_stage: String(window.__btechCurrentStage || (verifiedSession ? 'READY' : (terminalLoaded ? 'LOADED' : 'IDLE'))),
+                  run_id: Number(window.__btechActiveKotlinRunId || 0),
+                  last_heartbeat: Date.now(),
+                  platform: detectedPlat,
+                  url: href
+                });
+              } catch (err) {
+                return JSON.stringify({
+                  webview_alive: true,
+                  javascript_running: true,
+                  terminal_loaded: false,
+                  authenticated: false,
+                  dom_ready: false,
+                  symbol_discovery_running: false,
+                  order_ticket_open: false,
+                  current_stage: 'PROBE_ERROR:' + (err && err.message ? err.message : err),
+                  run_id: Number(window.__btechActiveKotlinRunId || 0),
+                  last_heartbeat: Date.now(),
+                  platform: '',
+                  url: String((window.location && window.location.href) || '')
+                });
+              }
             })();
         """.trimIndent()
     }
@@ -1549,6 +1696,789 @@ object WebTerminalScripts {
               removeButton.click();
               return 'true';
             })();
+        """.trimIndent()
+    }
+
+    /**
+     * Enforces a genuine desktop CSS layout viewport (~1366 CSS px by default) on broker terminals
+     * by rewriting mobile `width=device-width` / `initial-scale=1` viewport meta declarations early
+     * and maintaining the override against post-load framework mutations via MutationObserver.
+     */
+    fun buildDesktopViewportEnforcementScript(
+        targetWidthPx: Int = 1366,
+        enabled: Boolean = true,
+        isFallback: Boolean = false,
+    ): String {
+        val clampedWidth = targetWidthPx.coerceIn(1024, 2560)
+        return """
+            (function() {
+              'use strict';
+              const TARGET_WIDTH = $clampedWidth;
+              const ENABLED = $enabled;
+              const IS_FALLBACK = $isFallback;
+              const DESKTOP_CONTENT = 'width=' + TARGET_WIDTH + ', user-scalable=yes';
+
+              window.__btechViewportTargetWidth = TARGET_WIDTH;
+              window.__btechViewportEnabled = !!ENABLED;
+              window.__btechViewportFallbackApplied = !!IS_FALLBACK || !!window.__btechViewportFallbackApplied;
+              if (!IS_FALLBACK && ENABLED) {
+                window.__btechViewportDocStartActive = true;
+              }
+
+              function disconnectExistingObserver() {
+                try {
+                  if (window.__btechViewportObserver && typeof window.__btechViewportObserver.disconnect === 'function') {
+                    window.__btechViewportObserver.disconnect();
+                  }
+                } catch (_) {}
+                window.__btechViewportObserver = null;
+              }
+
+              if (!ENABLED) {
+                disconnectExistingObserver();
+                window.__btechViewportEnforced = false;
+                return false;
+              }
+
+              function isViewportMeta(node) {
+                if (!node || String(node.tagName || '').toUpperCase() !== 'META') return false;
+                const name = String((node.getAttribute && node.getAttribute('name')) || node.name || '').trim().toLowerCase();
+                return name === 'viewport';
+              }
+
+              function applyViewportTag() {
+                if (typeof document === 'undefined') return false;
+                window.__btechApplyingViewport = true;
+                let changed = false;
+                try {
+                  const head = document.head || (document.querySelector ? document.querySelector('head') : null) || document.documentElement;
+                  const metas = document.querySelectorAll ? Array.from(document.querySelectorAll('meta')) : [];
+                  const vpMetas = metas.filter(isViewportMeta);
+                  if (vpMetas.length === 0) {
+                    if (head && typeof document.createElement === 'function') {
+                      const meta = document.createElement('meta');
+                      meta.setAttribute('name', 'viewport');
+                      meta.setAttribute('content', DESKTOP_CONTENT);
+                      if (typeof head.prepend === 'function') {
+                        head.prepend(meta);
+                      } else if (typeof head.appendChild === 'function') {
+                        head.appendChild(meta);
+                      }
+                      changed = true;
+                    }
+                  } else {
+                    for (let i = 0; i < vpMetas.length; i++) {
+                      const m = vpMetas[i];
+                      const prev = String((m.getAttribute && m.getAttribute('content')) || m.content || '').trim();
+                      if (prev !== DESKTOP_CONTENT) {
+                        if (typeof m.setAttribute === 'function') {
+                          m.setAttribute('content', DESKTOP_CONTENT);
+                        } else {
+                          m.content = DESKTOP_CONTENT;
+                        }
+                        changed = true;
+                      }
+                    }
+                  }
+                  window.__btechViewportEnforced = true;
+                  if (changed && typeof window.dispatchEvent === 'function' && typeof Event === 'function') {
+                    try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+                  }
+                } catch (_) {
+                } finally {
+                  window.__btechApplyingViewport = false;
+                }
+                return changed;
+              }
+
+              // Intercept programmatic setAttribute('content', ...) / meta.content mutations before layout settles
+              if (!window.__btechViewportProtoPatched && typeof HTMLMetaElement !== 'undefined' && HTMLMetaElement.prototype) {
+                window.__btechViewportProtoPatched = true;
+                try {
+                  const origSetAttr = HTMLMetaElement.prototype.setAttribute;
+                  HTMLMetaElement.prototype.setAttribute = function(attrName, attrVal) {
+                    if (!window.__btechApplyingViewport && window.__btechViewportEnabled &&
+                        String(attrName || '').toLowerCase() === 'content' && isViewportMeta(this)) {
+                      return origSetAttr.call(this, attrName, DESKTOP_CONTENT);
+                    }
+                    const res = origSetAttr.call(this, attrName, attrVal);
+                    if (!window.__btechApplyingViewport && window.__btechViewportEnabled &&
+                        String(attrName || '').toLowerCase() === 'name' &&
+                        String(attrVal || '').trim().toLowerCase() === 'viewport') {
+                      origSetAttr.call(this, 'content', DESKTOP_CONTENT);
+                    }
+                    return res;
+                  };
+                  const contentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
+                  if (contentDesc && contentDesc.set) {
+                    const origSetter = contentDesc.set;
+                    Object.defineProperty(HTMLMetaElement.prototype, 'content', {
+                      configurable: true,
+                      enumerable: contentDesc.enumerable,
+                      get: contentDesc.get,
+                      set: function(val) {
+                        if (!window.__btechApplyingViewport && window.__btechViewportEnabled && isViewportMeta(this)) {
+                          return origSetter.call(this, DESKTOP_CONTENT);
+                        }
+                        return origSetter.call(this, val);
+                      }
+                    });
+                  }
+                } catch (_) {}
+              }
+
+              applyViewportTag();
+
+              if (typeof MutationObserver === 'function' && document.documentElement) {
+                disconnectExistingObserver();
+                try {
+                  const observer = new MutationObserver(function(mutations) {
+                    if (window.__btechApplyingViewport || !window.__btechViewportEnabled) return;
+                    let needsReapply = false;
+                    for (let i = 0; i < mutations.length && !needsReapply; i++) {
+                      const mut = mutations[i];
+                      if (mut.type === 'attributes' && isViewportMeta(mut.target)) {
+                        needsReapply = true;
+                      } else if (mut.type === 'childList') {
+                        if (mut.addedNodes) {
+                          for (let j = 0; j < mut.addedNodes.length; j++) {
+                            const n = mut.addedNodes[j];
+                            if (isViewportMeta(n) || (n.querySelectorAll && n.querySelectorAll('meta').length > 0)) {
+                              needsReapply = true;
+                              break;
+                            }
+                          }
+                        }
+                        if (!needsReapply && mut.removedNodes) {
+                          for (let k = 0; k < mut.removedNodes.length; k++) {
+                            if (isViewportMeta(mut.removedNodes[k])) {
+                              needsReapply = true;
+                              break;
+                            }
+                          }
+                        }
+                      }
+                    }
+                    if (needsReapply) applyViewportTag();
+                  });
+                  observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['name', 'content']
+                  });
+                  window.__btechViewportObserver = observer;
+                } catch (_) {}
+              }
+
+              if (typeof document.addEventListener === 'function' && !window.__btechViewportDomListenerAdded) {
+                window.__btechViewportDomListenerAdded = true;
+                document.addEventListener('DOMContentLoaded', function() {
+                  if (window.__btechViewportEnabled) applyViewportTag();
+                });
+              }
+
+              return true;
+            })();
+        """.trimIndent()
+    }
+
+    /**
+     * Collects measured CSS layout viewport diagnostics directly from the live DOM.
+     * Never relies on screen.width alone since physical screen width can remain phone-sized.
+     */
+    fun buildDesktopViewportDiagnosticsScript(
+        targetWidthPx: Int = 1366,
+        enforcementActive: Boolean = true,
+        documentStartSupported: Boolean = false,
+        fallbackApplied: Boolean = false,
+    ): String {
+        val clampedWidth = targetWidthPx.coerceIn(1024, 2560)
+        return """
+            (function() {
+              try {
+                const metas = document.querySelectorAll ? Array.from(document.querySelectorAll('meta')) : [];
+                const vpContents = metas
+                  .filter(function(m) {
+                    return String((m.getAttribute && m.getAttribute('name')) || m.name || '').trim().toLowerCase() === 'viewport';
+                  })
+                  .map(function(m) {
+                    return String((m.getAttribute && m.getAttribute('content')) || m.content || '').trim();
+                  })
+                  .filter(Boolean);
+                const metaViewport = vpContents.join(' | ');
+                const innerW = Number((typeof window !== 'undefined' && window.innerWidth) || 0);
+                const clientW = Number((typeof document !== 'undefined' && document.documentElement && document.documentElement.clientWidth) || 0);
+                const visualW = Number((typeof window !== 'undefined' && window.visualViewport && window.visualViewport.width) || 0);
+                const innerH = Number((typeof window !== 'undefined' && window.innerHeight) || 0);
+                const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) || '');
+                const url = String((typeof window !== 'undefined' && window.location && window.location.href) || '');
+                const targetW = $clampedWidth;
+                const widthToken = 'width=' + targetW;
+                const enforcedFlag = !!$enforcementActive && (
+                  !!window.__btechViewportEnforced ||
+                  metaViewport.indexOf(widthToken) >= 0 ||
+                  innerW >= Math.max(980, targetW - 80) ||
+                  clientW >= Math.max(980, targetW - 80)
+                );
+                return JSON.stringify({
+                  innerWidth: innerW,
+                  clientWidth: clientW,
+                  visualViewportWidth: visualW,
+                  innerHeight: innerH,
+                  metaViewport: metaViewport,
+                  userAgent: ua,
+                  url: url,
+                  targetWidth: targetW,
+                  viewportEnforced: enforcedFlag,
+                  layoutIsDesktopWidth: innerW >= 1024 || clientW >= 1024,
+                  documentStartSupported: !!$documentStartSupported || !!window.__btechViewportDocStartActive,
+                  fallbackApplied: !!$fallbackApplied || !!window.__btechViewportFallbackApplied
+                });
+              } catch (err) {
+                return JSON.stringify({
+                  innerWidth: 0,
+                  clientWidth: 0,
+                  visualViewportWidth: 0,
+                  innerHeight: 0,
+                  metaViewport: '',
+                  userAgent: '',
+                  url: String((typeof window !== 'undefined' && window.location && window.location.href) || ''),
+                  targetWidth: $clampedWidth,
+                  viewportEnforced: false,
+                  layoutIsDesktopWidth: false,
+                  documentStartSupported: !!$documentStartSupported,
+                  fallbackApplied: !!$fallbackApplied,
+                  error: String(err && err.message ? err.message : err)
+                });
+              }
+            })();
+        """.trimIndent()
+    }
+
+    private fun buildSharedPlatformDiscoveryRoutines(
+        pollDelayExpr: String,
+        withPhases: Boolean,
+        includeElementRef: Boolean,
+    ): String {
+        val phaseCall = if (withPhases) {
+            "setPhase"
+        } else {
+            "(function(){})"
+        }
+        val mt5ElementLine = if (includeElementRef) "element: selectedRow," else ""
+        val mt4ElementLine = if (includeElementRef) "element: result.element," else ""
+
+        return """
+              function hasMt5NoSymbolsFound() {
+                const deepTxt = collectDeepText();
+                if (!deepTxt || deepTxt.indexOf('No symbols found') < 0) return false;
+                const hasSpinner = deepAll('[role="progressbar"], [class*="spinner"], [class*="loader"], [class*="loading"]').some(isRenderedVisible);
+                if (hasSpinner) return false;
+                return deepAll('div, span, p, td, li').some(function(node) {
+                  if (node.children && node.children.length > 3) return false;
+                  if (!isRenderedVisible(node)) return false;
+                  const txt = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+                  return txt === 'No symbols found' || (txt.length <= 80 && txt.includes('No symbols found'));
+                });
+              }
+
+              async function waitForSymbol(targetSym, timeoutMs, scopeRoot, aliases, stopOnNoSymbols) {
+                const start = Date.now();
+                let seenNoSymbolsAt = 0;
+                const pollMs = Number($pollDelayExpr) || 250;
+                while (Date.now() - start < timeoutMs) {
+                  if (isCancelled()) return { cancelled: true };
+                  const hit = findSymbolElement(targetSym, scopeRoot, aliases);
+                  if (hit) return hit;
+                  if (stopOnNoSymbols && hasMt5NoSymbolsFound()) {
+                    if (!seenNoSymbolsAt) seenNoSymbolsAt = Date.now();
+                    if (Date.now() - seenNoSymbolsAt >= Math.min(200, pollMs)) {
+                      return { noSymbolsFound: true };
+                    }
+                  } else {
+                    seenNoSymbolsAt = 0;
+                  }
+                  await wait(pollMs);
+                }
+                return null;
+              }
+
+              function findMT5SearchFieldWithLabelSupport() {
+                const searchSelectors = [
+                  "input[placeholder='Search symbol']",
+                  "input[placeholder*='Search symbol' i]",
+                  "input[aria-label*='Search symbol' i]",
+                  "input[placeholder*='search' i]",
+                  "input[aria-label*='search' i]",
+                  "input[type='search']",
+                  "input[name*='search' i]",
+                  "input[id*='search' i]"
+                ];
+                for (let i = 0; i < searchSelectors.length; i++) {
+                  const hit = deepAll(searchSelectors[i]).find(isVisible);
+                  if (hit) return hit;
+                }
+                const allInputs = deepAll('input').filter(isVisible);
+                const labels = deepAll('label').filter(isRenderedVisible);
+                for (let i = 0; i < labels.length; i++) {
+                  const lbl = labels[i];
+                  const lt = (lbl.innerText || lbl.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!lt || (!lt.includes('search symbol') && !lt.includes('search') && lt !== 'symbol' && lt !== 'instrument')) continue;
+                  const forId = lbl.getAttribute ? (lbl.getAttribute('for') || '') : '';
+                  if (forId) {
+                    const matchedByFor = allInputs.find(function(inp) { return inp.id === forId; });
+                    if (matchedByFor) return matchedByFor;
+                  }
+                  if (lbl.querySelector) {
+                    const nested = Array.from(lbl.querySelectorAll('input')).find(isVisible);
+                    if (nested) return nested;
+                  }
+                  if (lbl.parentElement && lbl.parentElement.querySelectorAll) {
+                    const sib = Array.from(lbl.parentElement.querySelectorAll('input')).find(isVisible);
+                    if (sib) return sib;
+                  }
+                }
+                return null;
+              }
+
+              function buildMt5MissingSearchDiagnostic() {
+                try {
+                  const url = String((window.location && window.location.href) || '');
+                  const title = String((typeof document !== 'undefined' && document.title) || '');
+                  const visibleIns = deepAll('input').filter(isVisible).slice(0, 6).map(function(i) {
+                    return (i.getAttribute('placeholder') || i.getAttribute('aria-label') || i.name || i.id || i.type || 'input');
+                  });
+                  const visibleBtns = deepAll('button, [role="button"], [role="tab"]').filter(isVisible).slice(0, 8).map(function(b) {
+                    return (b.innerText || b.textContent || b.getAttribute('aria-label') || b.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
+                  }).filter(Boolean);
+                  return 'MT5 symbol search field not found [url=' + url + ', title=' + title +
+                    ', inputs=' + (visibleIns.join('|') || 'none') +
+                    ', controls=' + (visibleBtns.join('|') || 'none') + ']';
+                } catch (_) {
+                  return 'MT5 symbol search field not found';
+                }
+              }
+
+              function maybeDispatchEnter(el) {
+                if (!el) return;
+                try {
+                  const view = getViewFor(el);
+                  ['keydown', 'keypress', 'keyup'].forEach(function(ev) {
+                    el.dispatchEvent(new view.KeyboardEvent(ev, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true }));
+                  });
+                } catch (_) {}
+              }
+
+              async function discoverMT5Symbol(targetSymbol) {
+                const reportPhase = $phaseCall;
+                const pollMs = Number($pollDelayExpr) || 250;
+                const requested = String(targetSymbol || '').trim();
+                if (!requested) {
+                  return { success: false, platform: 'MT5', error: 'No symbol was supplied', discoveredSymbols: [] };
+                }
+
+                let searchInput = findMT5SearchFieldWithLabelSupport();
+                if (!searchInput) {
+                  reportPhase('SYMBOL_SEARCHING', 'Locating MT5 Search symbol input for ' + requested + '...');
+                  const waitSearchStart = Date.now();
+                  let toggledQuotes = false;
+                  while (!searchInput && Date.now() - waitSearchStart < 1800) {
+                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                    if (!toggledQuotes) {
+                      const quotesBtn = deepAll('button, [role="button"], [role="tab"], a').filter(isVisible).find(function(b) {
+                        const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).replace(/\s+/g, ' ').trim().toLowerCase();
+                        return t.includes('quotes') || t.includes('market watch') || t.includes('search symbol') || t.includes('add symbol') || t === 'symbols';
+                      });
+                      if (quotesBtn) {
+                        singleClick(quotesBtn);
+                        toggledQuotes = true;
+                      }
+                    }
+                    await wait(Math.min(250, pollMs + 100));
+                    searchInput = findMT5SearchFieldWithLabelSupport();
+                  }
+                }
+
+                if (!searchInput) {
+                  return {
+                    success: false,
+                    platform: 'MT5',
+                    searchFieldMissing: true,
+                    requestedSymbol: requested,
+                    error: buildMt5MissingSearchDiagnostic(),
+                    discoveredSymbols: discoverAllBrokerSymbols()
+                  };
+                }
+
+                if (searchInput.value && normalise(searchInput.value) !== normalise(requested)) {
+                  clearMt5SearchBox(searchInput);
+                  await wait(Math.min(120, pollMs));
+                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                }
+
+                reportPhase('SYMBOL_SEARCHING', 'Searching ' + requested + ' in MT5 Quotes...');
+                if (!setNativeInputValue(searchInput, requested)) {
+                  return {
+                    success: false,
+                    platform: 'MT5',
+                    requestedSymbol: requested,
+                    error: 'Could not enter symbol in MT5 search field',
+                    discoveredSymbols: discoverAllBrokerSymbols()
+                  };
+                }
+                maybeDispatchEnter(searchInput);
+
+                let result = await waitForSymbol(requested, 2200, null, VERIFIED_ALIASES, true);
+                if (result && result.cancelled) {
+                  return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                }
+                if (result && result.noSymbolsFound) result = null;
+
+                if (!result && VERIFIED_ALIASES && typeof VERIFIED_ALIASES === 'object') {
+                  const aliasKey = Object.keys(VERIFIED_ALIASES).find(function(k) {
+                    return normalise(k) === normalise(requested);
+                  });
+                  const aliasTarget = aliasKey ? String(VERIFIED_ALIASES[aliasKey] || '').trim() : '';
+                  if (aliasTarget && normalise(aliasTarget) !== normalise(requested)) {
+                    reportPhase('SYMBOL_SEARCHING', 'Checking verified alias ' + aliasTarget + ' on MT5...');
+                    setNativeInputValue(searchInput, aliasTarget);
+                    maybeDispatchEnter(searchInput);
+                    result = await waitForSymbol(requested, 1600, null, VERIFIED_ALIASES, true);
+                    if (result && result.cancelled) {
+                      return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                    }
+                    if (result && result.noSymbolsFound) result = null;
+                  }
+                }
+
+                if (!result) {
+                  return {
+                    success: false,
+                    platform: 'MT5',
+                    requestedSymbol: requested,
+                    error: 'error:Symbol ' + requested + ' not found',
+                    discoveredSymbols: discoverAllBrokerSymbols()
+                  };
+                }
+
+                reportPhase('SYMBOL_SEARCHING', 'Verifying ' + result.actualSymbol + ' in MT5 Quotes...');
+                const addAction = inspectMt5SearchResultAction(result.element);
+                const hasClearBtn = !!findMt5ClearSearchButton(searchInput);
+                let addedViaPlus = false;
+                let alreadyChecked = false;
+
+                if (addAction.state === 'PLUS' && addAction.control) {
+                  singleClick(addAction.control);
+                  addedViaPlus = true;
+                  await wait(Math.min(350, pollMs * 2 + 120));
+                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                } else if (addAction.state === 'CHECK') {
+                  alreadyChecked = true;
+                }
+
+                let selectedRow = result.element;
+                let confirmedInWatchlist = false;
+                if (addAction.state !== 'NONE' || hasClearBtn) {
+                  clearMt5SearchBox(searchInput);
+                  await wait(Math.min(300, pollMs * 2 + 100));
+                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+
+                  let watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
+                  const wStart = Date.now();
+                  while (!watchlistHit && Date.now() - wStart < 1200) {
+                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                    await wait(pollMs);
+                    watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
+                  }
+                  if (!watchlistHit) {
+                    const scrollers = findMt5WatchlistScrollContainers(searchInput);
+                    for (let sIdx = 0; sIdx < scrollers.length && !watchlistHit; sIdx++) {
+                      const box = scrollers[sIdx];
+                      const prevTop = box.scrollTop || 0;
+                      const stepPx = Math.max(160, (box.clientHeight || 240) * 0.75);
+                      for (let step = 0; step < 5 && !watchlistHit; step++) {
+                        box.scrollTop = (step + 1) * stepPx;
+                        await wait(Math.min(100, pollMs));
+                        if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                        watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
+                      }
+                      if (!watchlistHit) box.scrollTop = prevTop;
+                    }
+                  }
+
+                  if (watchlistHit) {
+                    selectedRow = watchlistHit.element;
+                    confirmedInWatchlist = true;
+                  } else {
+                    reportPhase('SYMBOL_SEARCHING', 'Selecting ' + result.actualSymbol + ' from MT5 search...');
+                    setNativeInputValue(searchInput, result.actualSymbol);
+                    maybeDispatchEnter(searchInput);
+                    let retryHit = await waitForSymbol(result.actualSymbol, 1600, null, VERIFIED_ALIASES, true);
+                    if (retryHit && retryHit.cancelled) {
+                      return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                    }
+                    if (!retryHit || retryHit.noSymbolsFound) {
+                      return {
+                        success: false,
+                        platform: 'MT5',
+                        requestedSymbol: requested,
+                        actualSymbol: result.actualSymbol,
+                        error: 'MT5 symbol ' + result.actualSymbol + ' not present in displayed watchlist or search results',
+                        discoveredSymbols: discoverAllBrokerSymbols()
+                      };
+                    }
+                    const retryAdd = inspectMt5SearchResultAction(retryHit.element);
+                    const iconToClick = !addedViaPlus
+                      ? ((retryAdd.state === 'PLUS' && retryAdd.control)
+                          ? retryAdd.control
+                          : (retryAdd.state === 'NONE' ? retryAdd.fallbackControl : null))
+                      : null;
+                    if (iconToClick) {
+                      singleClick(iconToClick);
+                      addedViaPlus = true;
+                      await wait(Math.min(300, pollMs * 2 + 100));
+                      if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                      const refreshedHit = findSymbolElement(result.actualSymbol, null, VERIFIED_ALIASES);
+                      selectedRow = (refreshedHit && refreshedHit.element) || retryHit.element;
+                    } else {
+                      selectedRow = retryHit.element;
+                    }
+                  }
+                }
+
+                const clicked = clickElement(selectedRow);
+                if (!clicked) {
+                  return {
+                    success: false,
+                    platform: 'MT5',
+                    requestedSymbol: requested,
+                    actualSymbol: result.actualSymbol,
+                    error: 'MT5 symbol result could not be selected',
+                    discoveredSymbols: discoverAllBrokerSymbols()
+                  };
+                }
+
+                await wait(Math.min(250, pollMs + 100));
+                if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+
+                const chartState = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
+                if (chartState.state === 'MISMATCH') {
+                  clickElement(selectedRow);
+                  await wait(Math.min(250, pollMs + 100));
+                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
+                  const retryChart = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
+                  if (retryChart.state === 'MISMATCH') {
+                    return {
+                      success: false,
+                      platform: 'MT5',
+                      requestedSymbol: requested,
+                      actualSymbol: result.actualSymbol,
+                      error: 'MT5 active chart stayed on ' + retryChart.symbol + ' instead of ' + result.actualSymbol,
+                      discoveredSymbols: discoverAllBrokerSymbols()
+                    };
+                  }
+                }
+
+                return {
+                  success: true,
+                  platform: 'MT5',
+                  broker: BROKER,
+                  server: SERVER,
+                  requestedSymbol: requested,
+                  actualSymbol: result.actualSymbol,
+                  matchRank: result.matchRank,
+                  matchType: result.matchType,
+                  addedViaPlus: addedViaPlus,
+                  alreadyChecked: alreadyChecked,
+                  confirmedInWatchlist: confirmedInWatchlist,
+                  resultClicked: true,
+                  $mt5ElementLine
+                  discoveredSymbols: discoverAllBrokerSymbols(),
+                  message: 'Matching MT5 symbol verified and selected before trading'
+                };
+              }
+
+              // --- SEPARATE MT4 DISCOVERY (Market Watch -> panel context menu -> Show All prioritised ahead of Symbols... -> row context menu New Order) ---
+              // NEVER falls back to MT5 search-field method and NEVER depends on double-clicking!
+              async function discoverMT4Symbol(targetSymbol) {
+                const reportPhase = $phaseCall;
+                const pollMs = Number($pollDelayExpr) || 250;
+                const requested = String(targetSymbol || '').trim();
+                if (!requested) {
+                  return { success: false, platform: 'MT4', error: 'No symbol was supplied', discoveredSymbols: [] };
+                }
+
+                reportPhase('SYMBOL_SEARCHING', 'Scanning MT4 Market Watch for ' + requested + '...');
+                let marketWatchPanel = await openHiddenMarketWatch(wait, pollMs);
+                if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+
+                let result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                let usedShowAll = false;
+                let usedSymbolsDialog = false;
+
+                if (!result) {
+                  if (!marketWatchPanel) {
+                    return {
+                      success: false,
+                      platform: 'MT4',
+                      requestedSymbol: requested,
+                      error: 'MT4 Market Watch panel not found',
+                      discoveredSymbols: discoverAllBrokerSymbols()
+                    };
+                  }
+
+                  reportPhase('SYMBOL_SEARCHING', 'Opening MT4 Market Watch menu (Show All) for ' + requested + '...');
+                  openMT4ContextMenu(marketWatchPanel);
+                  await wait(Math.min(300, pollMs + 50));
+                  if (isCancelled()) {
+                    return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+                  }
+
+                  const showAll = findMT4ShowAllMenuItem();
+                  const symbolsItem = findMT4SymbolsMenuItem();
+
+                  // Part 6 requirement: prioritise Show All ahead of Symbols... when missing symbol workflow runs!
+                  if (showAll) {
+                    usedShowAll = true;
+                    if (!clickMT4ShowAllMenuItem(showAll)) {
+                      return {
+                        success: false,
+                        platform: 'MT4',
+                        requestedSymbol: requested,
+                        error: 'Could not activate MT4 Show All',
+                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                      };
+                    }
+                    await wait(Math.min(400, pollMs * 2 + 100));
+                    const mwStart = Date.now();
+                    while (Date.now() - mwStart < 4000) {
+                      if (isCancelled()) {
+                        return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+                      }
+                      result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                      if (result) break;
+                      await wait(pollMs);
+                    }
+                  } else if (symbolsItem) {
+                    usedSymbolsDialog = true;
+                    if (!clickMT4MenuItem(symbolsItem)) {
+                      return {
+                        success: false,
+                        platform: 'MT4',
+                        requestedSymbol: requested,
+                        error: 'Could not open MT4 Symbols command',
+                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                      };
+                    }
+                    await wait(Math.min(300, pollMs + 80));
+                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+
+                    let dialog = findMT4SymbolsDialog();
+                    const dStart = Date.now();
+                    while (!dialog && Date.now() - dStart < 2000) {
+                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+                      await wait(pollMs);
+                      dialog = findMT4SymbolsDialog();
+                    }
+                    if (dialog) {
+                      for (let pass = 0; pass < 3; pass++) {
+                        const toggled = expandMT4SymbolGroups(dialog);
+                        if (!toggled) break;
+                        await wait(Math.min(200, pollMs + 40));
+                      }
+                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+
+                      const dlgHit = findSymbolElement(requested, dialog, VERIFIED_ALIASES);
+                      if (dlgHit) {
+                        singleClick(dlgHit.element);
+                        await wait(Math.min(180, pollMs + 30));
+                        if (!isMT4DialogRowAlreadyShown(dlgHit.element)) {
+                          const showBtn = findExactVisibleText('Show', "button, [role='button']", dialog);
+                          if (showBtn && !showBtn.disabled) {
+                            singleClick(showBtn);
+                          } else {
+                            doubleClickMT4Row(dlgHit.element);
+                          }
+                          await wait(Math.min(240, pollMs + 40));
+                        }
+                      }
+                      closeMT4SymbolsDialog(dialog);
+                    }
+                    await wait(Math.min(350, pollMs + 100));
+                    const mwStart = Date.now();
+                    while (Date.now() - mwStart < 2200) {
+                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
+                      result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                      if (result) break;
+                      await wait(pollMs);
+                    }
+                  } else {
+                    return {
+                      success: false,
+                      platform: 'MT4',
+                      requestedSymbol: requested,
+                      error: 'MT4 Show All or Symbols menu option not found',
+                      discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                    };
+                  }
+
+                  // If Show All was tried and still missing, check Symbols... dialog fallback once
+                  if (!result && usedShowAll && symbolsItem) {
+                    openMT4ContextMenu(marketWatchPanel);
+                    await wait(Math.min(250, pollMs + 50));
+                    const fbSymItem = findMT4SymbolsMenuItem();
+                    if (fbSymItem && clickMT4MenuItem(fbSymItem)) {
+                      usedSymbolsDialog = true;
+                      await wait(Math.min(300, pollMs + 80));
+                      let dlg = findMT4SymbolsDialog();
+                      if (dlg) {
+                        for (let pass = 0; pass < 3; pass++) {
+                          if (!expandMT4SymbolGroups(dlg)) break;
+                          await wait(Math.min(180, pollMs));
+                        }
+                        const dlgHit = findSymbolElement(requested, dlg, VERIFIED_ALIASES);
+                        if (dlgHit) {
+                          singleClick(dlgHit.element);
+                          const showBtn = findExactVisibleText('Show', "button, [role='button']", dlg);
+                          if (showBtn && !showBtn.disabled) singleClick(showBtn);
+                          await wait(Math.min(200, pollMs));
+                        }
+                        closeMT4SymbolsDialog(dlg);
+                      }
+                      result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                    }
+                  }
+                }
+
+                if (!result) {
+                  return {
+                    success: false,
+                    platform: 'MT4',
+                    requestedSymbol: requested,
+                    error: 'error:Symbol ' + requested + ' not found',
+                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                  };
+                }
+
+                clickElement(result.element);
+
+                return {
+                  success: true,
+                  platform: 'MT4',
+                  broker: BROKER,
+                  server: SERVER,
+                  requestedSymbol: requested,
+                  actualSymbol: result.actualSymbol,
+                  matchRank: result.matchRank,
+                  matchType: result.matchType,
+                  usedShowAll: usedShowAll,
+                  usedSymbolsDialog: usedSymbolsDialog,
+                  $mt4ElementLine
+                  discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel),
+                  message: 'Matching MT4 Market Watch row located; ready for row context-menu New Order'
+                };
+              }
         """.trimIndent()
     }
 
@@ -1615,435 +2545,7 @@ object WebTerminalScripts {
 
               $DEEP_DOM_HELPERS
               $ROBOTRADER_DISCOVERY_HELPERS
-
-              function hasMt5NoSymbolsFound() {
-                const deepTxt = collectDeepText();
-                if (!deepTxt || deepTxt.indexOf('No symbols found') < 0) return false;
-                const hasSpinner = deepAll('[role="progressbar"], [class*="spinner"], [class*="loader"], [class*="loading"]').some(isRenderedVisible);
-                if (hasSpinner) return false;
-                return deepAll('div, span, p, td, li').some(function(node) {
-                  if (node.children && node.children.length > 3) return false;
-                  if (!isRenderedVisible(node)) return false;
-                  const txt = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
-                  return txt === 'No symbols found' || (txt.length <= 80 && txt.includes('No symbols found'));
-                });
-              }
-
-              async function waitForSymbol(symbol, timeoutMs, scopeRoot, aliases, stopOnNoSymbols) {
-                const start = Date.now();
-                let seenNoSymbolsAt = 0;
-                while (Date.now() - start < timeoutMs) {
-                  if (isCancelled()) return { cancelled: true };
-                  const hit = findSymbolElement(symbol, scopeRoot, aliases);
-                  if (hit) return hit;
-                  if (stopOnNoSymbols && hasMt5NoSymbolsFound()) {
-                    if (!seenNoSymbolsAt) seenNoSymbolsAt = Date.now();
-                    if (Date.now() - seenNoSymbolsAt >= POLL_MS) {
-                      return { noSymbolsFound: true };
-                    }
-                  } else {
-                    seenNoSymbolsAt = 0;
-                  }
-                  await wait(POLL_MS);
-                }
-                return null;
-              }
-
-              async function discoverMT5Symbol(targetSymbol) {
-                const requested = String(targetSymbol || '').trim();
-                if (!requested) {
-                  return { success: false, platform: 'MT5', error: 'No symbol was supplied', discoveredSymbols: [] };
-                }
-
-                const searchSelectors = [
-                  "input[placeholder='Search symbol']",
-                  "input[placeholder*='Search symbol' i]",
-                  "input[aria-label*='Search symbol' i]",
-                  "input[placeholder*='search' i]",
-                  "input[aria-label*='search' i]",
-                  "input[type='search']"
-                ];
-
-                function findMT5SearchField() {
-                  for (let i = 0; i < searchSelectors.length; i++) {
-                    const hit = deepAll(searchSelectors[i]).find(isVisible);
-                    if (hit) return hit;
-                  }
-                  return null;
-                }
-
-                let searchInput = findMT5SearchField();
-                if (!searchInput) {
-                  const toggleEl = deepAll('button, [role="button"], [role="tab"], a').filter(isVisible).find(function(b) {
-                    const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).replace(/\s+/g, ' ').trim().toLowerCase();
-                    return t.includes('quotes') || t.includes('market watch') || t.includes('search symbol') || t.includes('add symbol');
-                  });
-                  if (toggleEl) {
-                    singleClick(toggleEl);
-                    await wait(Math.min(350, POLL_MS + 150));
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                    searchInput = findMT5SearchField();
-                  }
-                }
-
-                if (!searchInput) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'MT5 symbol search field not found',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                if (!setNativeInputValue(searchInput, requested)) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'Could not enter symbol in MT5 search field',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                let result = await waitForSymbol(requested, 1800, null, VERIFIED_ALIASES, true);
-                if (result && result.cancelled) {
-                  return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                }
-                if (result && result.noSymbolsFound) result = null;
-
-                if (!result && VERIFIED_ALIASES && typeof VERIFIED_ALIASES === 'object') {
-                  const aliasKey = Object.keys(VERIFIED_ALIASES).find(function(k) {
-                    return normalise(k) === normalise(requested);
-                  });
-                  const aliasTarget = aliasKey ? String(VERIFIED_ALIASES[aliasKey] || '').trim() : '';
-                  if (aliasTarget && normalise(aliasTarget) !== normalise(requested)) {
-                    setNativeInputValue(searchInput, aliasTarget);
-                    result = await waitForSymbol(requested, 1500, null, VERIFIED_ALIASES, true);
-                    if (result && result.cancelled) {
-                      return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                    }
-                    if (result && result.noSymbolsFound) result = null;
-                  }
-                }
-
-                if (!result) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'error:Symbol ' + requested + ' not found',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                const addAction = inspectMt5SearchResultAction(result.element);
-                const hasClearBtn = !!findMt5ClearSearchButton(searchInput);
-                let addedViaPlus = false;
-                let alreadyChecked = false;
-
-                if (addAction.state === 'PLUS' && addAction.control) {
-                  singleClick(addAction.control);
-                  addedViaPlus = true;
-                  await wait(Math.min(350, POLL_MS * 2 + 120));
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                } else if (addAction.state === 'CHECK') {
-                  alreadyChecked = true;
-                }
-
-                let selectedRow = result.element;
-                let confirmedInWatchlist = false;
-                if (addAction.state !== 'NONE' || hasClearBtn) {
-                  clearMt5SearchBox(searchInput);
-                  await wait(Math.min(350, POLL_MS * 2 + 120));
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-
-                  let watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                  const wStart = Date.now();
-                  while (!watchlistHit && Date.now() - wStart < 1200) {
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                    await wait(POLL_MS);
-                    watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                  }
-                  if (!watchlistHit) {
-                    const scrollers = findMt5WatchlistScrollContainers(searchInput);
-                    for (let sIdx = 0; sIdx < scrollers.length && !watchlistHit; sIdx++) {
-                      const box = scrollers[sIdx];
-                      const prevTop = box.scrollTop || 0;
-                      const stepPx = Math.max(160, (box.clientHeight || 240) * 0.75);
-                      for (let step = 0; step < 5 && !watchlistHit; step++) {
-                        box.scrollTop = (step + 1) * stepPx;
-                        await wait(Math.min(100, POLL_MS));
-                        if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                        watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                      }
-                      if (!watchlistHit) box.scrollTop = prevTop;
-                    }
-                  }
-
-                  if (watchlistHit) {
-                    selectedRow = watchlistHit.element;
-                    confirmedInWatchlist = true;
-                  } else {
-                    // Virtualized/unadded fallback: re-enter symbol in Search symbol, click unrecognized '+' icon if present, and select row directly
-                    setNativeInputValue(searchInput, result.actualSymbol);
-                    let retryHit = await waitForSymbol(result.actualSymbol, 1600, null, VERIFIED_ALIASES, true);
-                    if (retryHit && retryHit.cancelled) {
-                      return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                    }
-                    if (!retryHit || retryHit.noSymbolsFound) {
-                      return {
-                        success: false,
-                        platform: 'MT5',
-                        requestedSymbol: requested,
-                        actualSymbol: result.actualSymbol,
-                        error: 'MT5 symbol ' + result.actualSymbol + ' not present in displayed watchlist or search results',
-                        discoveredSymbols: discoverAllBrokerSymbols()
-                      };
-                    }
-                    const retryAdd = inspectMt5SearchResultAction(retryHit.element);
-                    const iconToClick = !addedViaPlus
-                      ? ((retryAdd.state === 'PLUS' && retryAdd.control)
-                          ? retryAdd.control
-                          : (retryAdd.state === 'NONE' ? retryAdd.fallbackControl : null))
-                      : null;
-                    if (iconToClick) {
-                      singleClick(iconToClick);
-                      addedViaPlus = true;
-                      await wait(Math.min(350, POLL_MS * 2 + 120));
-                      if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true, error: 'Discovery cancelled' };
-                      const refreshedHit = findSymbolElement(result.actualSymbol, null, VERIFIED_ALIASES);
-                      selectedRow = (refreshedHit && refreshedHit.element) || retryHit.element;
-                    } else {
-                      selectedRow = retryHit.element;
-                    }
-                  }
-                }
-
-                const clicked = clickElement(selectedRow);
-                if (!clicked) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    actualSymbol: result.actualSymbol,
-                    error: 'MT5 symbol result could not be selected',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                await wait(Math.min(250, POLL_MS + 100));
-                const chartState = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
-                if (chartState.state === 'MISMATCH') {
-                  clickElement(selectedRow);
-                  await wait(Math.min(250, POLL_MS + 100));
-                  const retryChart = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
-                  if (retryChart.state === 'MISMATCH') {
-                    return {
-                      success: false,
-                      platform: 'MT5',
-                      requestedSymbol: requested,
-                      actualSymbol: result.actualSymbol,
-                      error: 'MT5 active chart stayed on ' + retryChart.symbol + ' instead of ' + result.actualSymbol,
-                      discoveredSymbols: discoverAllBrokerSymbols()
-                    };
-                  }
-                }
-
-                return {
-                  success: true,
-                  platform: 'MT5',
-                  broker: BROKER,
-                  server: SERVER,
-                  requestedSymbol: requested,
-                  actualSymbol: result.actualSymbol,
-                  matchRank: result.matchRank,
-                  matchType: result.matchType,
-                  addedViaPlus: addedViaPlus,
-                  alreadyChecked: alreadyChecked,
-                  confirmedInWatchlist: confirmedInWatchlist,
-                  resultClicked: true,
-                  discoveredSymbols: discoverAllBrokerSymbols(),
-                  message: 'Matching MT5 symbol verified and selected before trading'
-                };
-              }
-
-              async function discoverMT4Symbol(targetSymbol) {
-                const requested = String(targetSymbol || '').trim();
-                if (!requested) {
-                  return { success: false, platform: 'MT4', error: 'No symbol was supplied', discoveredSymbols: [] };
-                }
-
-                let marketWatchPanel = findMarketWatchPanel();
-                if (!marketWatchPanel) {
-                  const mwToggle = deepAll('button, [role="button"], [title*="Market Watch" i], [aria-label*="Market Watch" i], a').filter(isVisible).find(function(b) {
-                    const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).replace(/\s+/g, ' ').trim().toLowerCase();
-                    return t.includes('market watch');
-                  });
-                  if (mwToggle) {
-                    singleClick(mwToggle);
-                    await wait(Math.min(350, POLL_MS + 150));
-                    marketWatchPanel = findMarketWatchPanel();
-                  }
-                }
-
-                let result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                let usedSymbolsDialog = false;
-
-                if (!result) {
-                  if (!marketWatchPanel) {
-                    return {
-                      success: false,
-                      platform: 'MT4',
-                      requestedSymbol: requested,
-                      error: 'MT4 Market Watch panel not found',
-                      discoveredSymbols: discoverAllBrokerSymbols()
-                    };
-                  }
-
-                  openMT4ContextMenu(marketWatchPanel);
-                  await wait(Math.min(300, POLL_MS + 50));
-                  if (isCancelled()) {
-                    return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-                  }
-
-                  const symbolsItem = findMT4SymbolsMenuItem();
-                  const showAll = findMT4ShowAllMenuItem();
-
-                  if (symbolsItem) {
-                    usedSymbolsDialog = true;
-                    if (!clickMT4MenuItem(symbolsItem)) {
-                      return {
-                        success: false,
-                        platform: 'MT4',
-                        requestedSymbol: requested,
-                        error: 'Could not open MT4 Symbols command',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                      };
-                    }
-                    await wait(Math.min(350, POLL_MS + 100));
-                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-
-                    let dialog = findMT4SymbolsDialog();
-                    const dStart = Date.now();
-                    while (!dialog && Date.now() - dStart < 2500) {
-                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-                      await wait(POLL_MS);
-                      dialog = findMT4SymbolsDialog();
-                    }
-
-                    if (dialog) {
-                      for (let pass = 0; pass < 3; pass++) {
-                        const toggled = expandMT4SymbolGroups(dialog);
-                        if (!toggled) break;
-                        await wait(Math.min(200, POLL_MS + 50));
-                      }
-                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-
-                      const dlgHit = findSymbolElement(requested, dialog, VERIFIED_ALIASES);
-                      if (dlgHit) {
-                        singleClick(dlgHit.element);
-                        await wait(Math.min(180, POLL_MS + 30));
-                        if (!isMT4DialogRowAlreadyShown(dlgHit.element)) {
-                          const showBtn = findExactVisibleText('Show', "button, [role='button']", dialog);
-                          if (showBtn && !showBtn.disabled) {
-                            singleClick(showBtn);
-                          } else {
-                            doubleClickMT4Row(dlgHit.element);
-                          }
-                          await wait(Math.min(250, POLL_MS + 50));
-                        }
-                      }
-                      closeMT4SymbolsDialog(dialog);
-                    }
-                  } else if (showAll) {
-                    if (!clickMT4ShowAllMenuItem(showAll)) {
-                      return {
-                        success: false,
-                        platform: 'MT4',
-                        requestedSymbol: requested,
-                        error: 'Could not activate MT4 Show All',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                      };
-                    }
-                  } else {
-                    return {
-                      success: false,
-                      platform: 'MT4',
-                      requestedSymbol: requested,
-                      error: 'MT4 Symbols or Show All menu option not found',
-                      discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                    };
-                  }
-
-                  await wait(Math.min(500, POLL_MS * 2 + 100));
-                  const mwStart = Date.now();
-                  const initialWaitMs = usedSymbolsDialog ? 2500 : 5000;
-                  while (Date.now() - mwStart < initialWaitMs) {
-                    if (isCancelled()) {
-                      return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-                    }
-                    result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                    if (result) break;
-                    await wait(POLL_MS);
-                  }
-
-                  // Fallback: if Symbols dialog tree couldn't reveal the instrument, try Show All once
-                  if (!result && usedSymbolsDialog) {
-                    openMT4ContextMenu(marketWatchPanel);
-                    await wait(Math.min(250, POLL_MS + 50));
-                    const fallbackShowAll = findMT4ShowAllMenuItem();
-                    if (fallbackShowAll && clickMT4ShowAllMenuItem(fallbackShowAll)) {
-                      await wait(Math.min(400, POLL_MS + 100));
-                      const fbStart = Date.now();
-                      while (Date.now() - fbStart < 3500) {
-                        if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
-                        result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                        if (result) break;
-                        await wait(POLL_MS);
-                      }
-                    }
-                  }
-                }
-
-                if (!result) {
-                  return {
-                    success: false,
-                    platform: 'MT4',
-                    requestedSymbol: requested,
-                    error: 'error:Symbol ' + requested + ' not found',
-                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                  };
-                }
-
-                clickElement(result.element);
-                const opened = doubleClickMT4Row(result.element);
-                if (!opened) {
-                  return {
-                    success: false,
-                    platform: 'MT4',
-                    requestedSymbol: requested,
-                    actualSymbol: result.actualSymbol,
-                    error: 'Could not open the MT4 instrument row',
-                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                  };
-                }
-
-                return {
-                  success: true,
-                  platform: 'MT4',
-                  broker: BROKER,
-                  server: SERVER,
-                  requestedSymbol: requested,
-                  actualSymbol: result.actualSymbol,
-                  matchRank: result.matchRank,
-                  matchType: result.matchType,
-                  usedSymbolsDialog: usedSymbolsDialog,
-                  doubleClickSent: true,
-                  discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel),
-                  message: 'Matching MT4 Market Watch row selected; verify the order ticket before trading'
-                };
-              }
+              ${buildSharedPlatformDiscoveryRoutines("POLL_MS", withPhases = false, includeElementRef = false)}
 
               window.BtechRoboTraderDiscovery = {
                 normalise: normalise,
@@ -2058,7 +2560,12 @@ object WebTerminalScripts {
                 findExactVisibleText: findExactVisibleText,
                 inspectMt5SearchResultAction: inspectMt5SearchResultAction,
                 findMT4SymbolsMenuItem: findMT4SymbolsMenuItem,
+                findMT4ShowAllMenuItem: findMT4ShowAllMenuItem,
+                findMT4NewOrderMenuItem: findMT4NewOrderMenuItem,
                 openMT4ContextMenu: openMT4ContextMenu,
+                openMT4RowContextMenu: openMT4RowContextMenu,
+                findMarketWatchPanel: findMarketWatchPanel,
+                openHiddenMarketWatch: openHiddenMarketWatch,
                 doubleClickMT4Row: doubleClickMT4Row,
                 discoverMT4Symbol: discoverMT4Symbol,
                 discoverMT5Symbol: discoverMT5Symbol
@@ -2114,6 +2621,7 @@ object WebTerminalScripts {
         signalId: String = "",
         confirmTimeoutPolls: Int = 60,
         accountLogin: String = "",
+        kotlinRunId: Long = 1L,
     ): String {
         val safeSymbol = JSONObject.quote(symbol)
         val safeDir = JSONObject.quote(direction)
@@ -2132,9 +2640,14 @@ object WebTerminalScripts {
         return """
             (function() {
               'use strict';
+              const KOTLIN_RUN_ID = $kotlinRunId;
               window.__btechTradeCancelled = false;
               const RUN_ID = (window.__btechTradeRunId || 0) + 1;
               window.__btechTradeRunId = RUN_ID;
+              window.__btechActiveKotlinRunId = KOTLIN_RUN_ID;
+              window.__btechCurrentStage = 'SIGNAL';
+              window.__btechDiscoveryRunning = false;
+              window.__btechOrderTicketOpen = false;
               if (Array.isArray(window.__btechTradeTimers)) {
                 window.__btechTradeTimers.forEach(function(id) { try { clearTimeout(id); } catch (_) {} });
               }
@@ -2191,15 +2704,39 @@ object WebTerminalScripts {
 
               function setPhase(phaseKey, detail) {
                 if (isCancelled()) return;
-                if (window.BtechBridge && typeof window.BtechBridge.onTradePhase === 'function') {
-                  window.BtechBridge.onTradePhase(String(phaseKey), String(detail || ''));
+                const keyStr = String(phaseKey);
+                window.__btechCurrentStage = keyStr;
+                if (keyStr === 'SYMBOL_SEARCHING' || keyStr === 'SYMBOL' || keyStr === 'SYMBOL_SELECTING') {
+                  window.__btechDiscoveryRunning = true;
+                } else if (keyStr === 'SYMBOL_FOUND' || keyStr === 'SYMBOL_SELECTED' || keyStr === 'ERROR' || keyStr === 'DONE' || keyStr === 'UNKNOWN') {
+                  window.__btechDiscoveryRunning = false;
+                }
+                if (keyStr === 'PREPARE' || keyStr === 'PREPARED' || keyStr.indexOf('TRADE_') === 0 || keyStr === 'SUBMIT' || keyStr === 'CONFIRM') {
+                  window.__btechOrderTicketOpen = true;
+                } else if (keyStr === 'ERROR' || keyStr === 'DONE' || keyStr === 'UNKNOWN') {
+                  window.__btechOrderTicketOpen = false;
+                }
+                if (window.BtechBridge) {
+                  if (typeof window.BtechBridge.onTradePhaseForRun === 'function') {
+                    window.BtechBridge.onTradePhaseForRun(KOTLIN_RUN_ID, keyStr, String(detail || ''));
+                  } else if (typeof window.BtechBridge.onTradePhase === 'function') {
+                    window.BtechBridge.onTradePhase(keyStr, String(detail || ''));
+                  }
                 }
               }
 
               function log(msg, err, done) {
                 if (isCancelled()) return;
-                if (window.BtechBridge && typeof window.BtechBridge.onTradeLog === 'function') {
-                  window.BtechBridge.onTradeLog(String(msg), !!err, !!done);
+                if (done) {
+                  window.__btechDiscoveryRunning = false;
+                  window.__btechOrderTicketOpen = false;
+                }
+                if (window.BtechBridge) {
+                  if (typeof window.BtechBridge.onTradeLogForRun === 'function') {
+                    window.BtechBridge.onTradeLogForRun(KOTLIN_RUN_ID, String(msg), !!err, !!done);
+                  } else if (typeof window.BtechBridge.onTradeLog === 'function') {
+                    window.BtechBridge.onTradeLog(String(msg), !!err, !!done);
+                  }
                 }
               }
 
@@ -2208,6 +2745,8 @@ object WebTerminalScripts {
                 if (window.BtechBridge && typeof window.BtechBridge.onSymbolDiscovered === 'function') {
                   try {
                     window.BtechBridge.onSymbolDiscovered(JSON.stringify({
+                      runId: KOTLIN_RUN_ID,
+                      signalId: SIGNAL_ID,
                       success: !!res.success,
                       requestedSymbol: res.requestedSymbol || SYMBOL,
                       actualSymbol: res.actualSymbol || null,
@@ -2226,43 +2765,13 @@ object WebTerminalScripts {
                 if (isCancelled()) return;
                 if (window.BtechBridge && typeof window.BtechBridge.onTradeResult === 'function') {
                   try {
-                    window.BtechBridge.onTradeResult(JSON.stringify(payload));
+                    const enriched = Object.assign({ runId: KOTLIN_RUN_ID, signalId: SIGNAL_ID }, payload || {});
+                    window.BtechBridge.onTradeResult(JSON.stringify(enriched));
                   } catch (_) {}
                 }
               }
 
-              function hasMt5NoSymbolsFound() {
-                const deepTxt = collectDeepText();
-                if (!deepTxt || deepTxt.indexOf('No symbols found') < 0) return false;
-                const hasSpinner = deepAll('[role="progressbar"], [class*="spinner"], [class*="loader"], [class*="loading"]').some(isRenderedVisible);
-                if (hasSpinner) return false;
-                return deepAll('div, span, p, td, li').some(function(node) {
-                  if (node.children && node.children.length > 3) return false;
-                  if (!isRenderedVisible(node)) return false;
-                  const txt = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
-                  return txt === 'No symbols found' || (txt.length <= 80 && txt.includes('No symbols found'));
-                });
-              }
-
-              async function waitForSymbol(targetSym, timeoutMs, scopeRoot, aliases, stopOnNoSymbols) {
-                const start = Date.now();
-                let seenNoSymbolsAt = 0;
-                while (Date.now() - start < timeoutMs) {
-                  if (isCancelled()) return null;
-                  const result = findSymbolElement(targetSym, scopeRoot, aliases);
-                  if (result) return result;
-                  if (stopOnNoSymbols && hasMt5NoSymbolsFound()) {
-                    if (!seenNoSymbolsAt) seenNoSymbolsAt = Date.now();
-                    if (Date.now() - seenNoSymbolsAt >= 200) {
-                      return { noSymbolsFound: true };
-                    }
-                  } else {
-                    seenNoSymbolsAt = 0;
-                  }
-                  await wait(250);
-                }
-                return null;
-              }
+              ${buildSharedPlatformDiscoveryRoutines("250", withPhases = true, includeElementRef = true)}
 
               function visibleInputs() {
                 return queryDeepAll('input').filter(isVisible);
@@ -2339,8 +2848,25 @@ object WebTerminalScripts {
                 return null;
               }
 
-              // RoboTrader Part 2 H (exact recovered sequence adapted to safe BTECH DOM):
-              // Checks Buy by Market / Sell by Market, then Show Trade Form (F9) title, then New Order text/aria/title.
+              function isIgnoredChartOrSettingsControl(node) {
+                if (!node) return false;
+                const meta = (
+                  (node.innerText || node.textContent || '') + ' ' +
+                  (node.getAttribute && node.getAttribute('aria-label') || '') + ' ' +
+                  (node.getAttribute && node.getAttribute('title') || '') + ' ' +
+                  (node.getAttribute && node.getAttribute('data-testid') || '') + ' ' +
+                  (typeof node.className === 'string' ? node.className : '') + ' ' +
+                  (node.id || '')
+                ).replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!meta) return false;
+                if (meta.includes('show trade form') || meta.includes('new order') || meta.includes('place order')) {
+                  return false;
+                }
+                return /\b(?:drawing|drawings|trendline|crosshair|fibonacci|indicator|indicators|settings|gear|properties|timeframe|object|objects|zoom|grid|fullscreen|full\s*screen|layout|template|candlestick|bar\s*chart|line\s*chart|alerts|notifications)\b/i.test(meta);
+              }
+
+              // Checks Buy/Sell controls, then Show Trade Form (F9) title, then New Order text/aria/title,
+              // strictly ignoring chart drawing tools, indicators, and settings buttons.
               function openMT5TradeForm() {
                 const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
                 const buttons = queryDeepAll('button, [role="button"]').filter(isRenderedVisible);
@@ -2352,6 +2878,7 @@ object WebTerminalScripts {
 
                 const titledNodes = queryDeepAll('[title], [aria-label]').filter(isRenderedVisible);
                 const titleTarget = titledNodes.find(node => {
+                  if (isIgnoredChartOrSettingsControl(node)) return false;
                   const attr = normalize((node.getAttribute && node.getAttribute('title')) || '') + ' ' +
                     normalize((node.getAttribute && node.getAttribute('aria-label')) || '');
                   return attr.includes('Show Trade Form (F9)') ||
@@ -2359,14 +2886,17 @@ object WebTerminalScripts {
                 });
                 if (titleTarget) {
                   const clickable = (titleTarget.closest && (titleTarget.closest('button') || titleTarget.closest('[role="button"]'))) || titleTarget;
-                  singleClick(clickable);
-                  return 'opened:title';
+                  if (!isIgnoredChartOrSettingsControl(clickable)) {
+                    singleClick(clickable);
+                    return 'opened:title';
+                  }
                 }
 
                 const textTargets = queryDeepAll('button, [role="button"], a, span, div').filter(isRenderedVisible);
                 const newOrderTarget = textTargets.find(node => {
                   if (node.children && node.children.length > 3) return false;
                   if (node.closest && node.closest('table, tr, [role="row"]')) return false;
+                  if (isIgnoredChartOrSettingsControl(node)) return false;
                   const t = normalize(node.innerText || node.textContent).toLowerCase();
                   return t === 'new order' || t === 'place order' || t === 'show trade form';
                 });
@@ -2375,7 +2905,7 @@ object WebTerminalScripts {
                     (newOrderTarget.closest && (newOrderTarget.closest('button') || newOrderTarget.closest('[role="button"]'))) ||
                     (newOrderTarget.parentElement && newOrderTarget.parentElement.closest && (newOrderTarget.parentElement.closest('button') || newOrderTarget.parentElement.closest('[role="button"]'))) ||
                     newOrderTarget;
-                  if (clickable) {
+                  if (clickable && !isIgnoredChartOrSettingsControl(clickable)) {
                     singleClick(clickable);
                     return 'opened:text';
                   }
@@ -2390,6 +2920,8 @@ object WebTerminalScripts {
                   : ['new order', 'add order', 'create order', 'place order'];
                 for (const k of strictKeys) {
                   const hit = btns.find(b => {
+                    if (isIgnoredChartOrSettingsControl(b)) return false;
+                    if (b.closest && b.closest('table, tr, [role="row"]')) return false;
                     const t = ((b.innerText || b.value || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).replace(/\s+/g, ' ').trim().toLowerCase();
                     return t.includes(k);
                   });
@@ -2416,30 +2948,86 @@ object WebTerminalScripts {
               function inspectOrderExecutionType(nearInput) {
                 const scope = findOrderScope(nearInput) || (nearInput && nearInput.closest && nearInput.closest('.trade-form, [role="dialog"], [class*="order"], [class*="modal"]')) || null;
                 let selectedTypeText = '';
+                let selectEl = null;
+                let options = [];
+                let marketOption = null;
                 const typeSelectors = scope
                   ? Array.from(scope.querySelectorAll("select, [role='combobox'], [class*='select' i], [class*='type' i], button"))
-                  : [];
+                  : queryDeepAll("select, [role='combobox']").filter(isRenderedVisible);
                 for (let i = 0; i < typeSelectors.length; i++) {
                   const el = typeSelectors[i];
                   if (!isRenderedVisible(el)) continue;
-                  let txt = '';
-                  if (el.tagName === 'SELECT' && el.options && el.options[el.selectedIndex >= 0 ? el.selectedIndex : 0]) {
-                    txt = el.options[el.selectedIndex >= 0 ? el.selectedIndex : 0].textContent || el.value || '';
-                  } else {
-                    txt = el.innerText || el.textContent || '';
-                  }
-                  txt = txt.replace(/\s+/g, ' ').trim().toLowerCase();
-                  if (!txt || txt.length > 48) continue;
-                  if (/^(?:market execution|instant execution|exchange execution|request execution|buy limit|sell limit|buy stop|sell stop|buy stop limit|sell stop limit)$/.test(txt)) {
-                    selectedTypeText = txt;
+                  if (el.tagName === 'SELECT') {
+                    const opts = Array.from(el.options || []);
+                    const optTexts = opts.map(o => String(o.textContent || o.value || '').replace(/\s+/g, ' ').trim());
+                    const looksLikeExecSelect = optTexts.some(t =>
+                      /^(?:market execution|instant execution|exchange execution|request execution|buy limit|sell limit|buy stop|sell stop|buy stop limit|sell stop limit|pending order)$/i.test(t)
+                    );
+                    if (!looksLikeExecSelect) continue;
+                    selectEl = el;
+                    options = optTexts;
+                    marketOption = opts.find(o => {
+                      const ot = String(o.textContent || o.value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                      return ot === 'market execution' || ot === 'instant execution' || ot === 'exchange execution' || ot === 'market';
+                    }) || null;
+                    const idx = el.selectedIndex >= 0 ? el.selectedIndex : 0;
+                    const selOpt = opts[idx];
+                    selectedTypeText = selOpt ? String(selOpt.textContent || selOpt.value || '').replace(/\s+/g, ' ').trim().toLowerCase() : '';
                     break;
+                  } else {
+                    const txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    if (!txt || txt.length > 48) continue;
+                    if (/^(?:market execution|instant execution|exchange execution|request execution|buy limit|sell limit|buy stop|sell stop|buy stop limit|sell stop limit)$/.test(txt)) {
+                      selectedTypeText = txt;
+                      break;
+                    }
                   }
                 }
-                if (/\b(?:limit|stop)\b/.test(selectedTypeText)) {
-                  const pendingDir = selectedTypeText.includes('sell') ? 'SELL' : (selectedTypeText.includes('buy') ? 'BUY' : '');
-                  return { mode: 'PENDING', rawType: selectedTypeText, pendingDirection: pendingDir };
+                const isPending = /\b(?:limit|stop|pending)\b/.test(selectedTypeText);
+                const pendingDir = isPending
+                  ? (selectedTypeText.includes('sell') ? 'SELL' : (selectedTypeText.includes('buy') ? 'BUY' : ''))
+                  : '';
+                return {
+                  mode: isPending ? 'PENDING' : 'MARKET',
+                  rawType: selectedTypeText || 'market execution',
+                  pendingDirection: pendingDir,
+                  selectEl: selectEl,
+                  options: options,
+                  hasMarketOption: !!marketOption,
+                  marketOption: marketOption
+                };
+              }
+
+              function findPendingEntryPriceInput(nearInput) {
+                const scope = findOrderScope(nearInput) || (nearInput && nearInput.closest && nearInput.closest('.trade-form, [role="dialog"], [class*="order"], [class*="modal"]')) || null;
+                const scopedInputs = scope
+                  ? Array.from(scope.querySelectorAll('input')).filter(isVisible)
+                  : visibleInputs();
+                return findOrderFieldInput(
+                  scopedInputs,
+                  ['at price', 'open price', 'entry price', 'trigger price', 'limit price', 'price'],
+                  ['stop loss', 'take profit', 'volume', 'lot', 'comment', 'sl', 'tp']
+                );
+              }
+
+              // Actively aligns execution dropdown for market signals when mixed Market + Pending options exist;
+              // rejects pending mode cleanly if an entry-price field is required and absent.
+              function ensureExecutionTypeForSignal(nearInput) {
+                let info = inspectOrderExecutionType(nearInput);
+                if (info.mode === 'PENDING' && info.selectEl && info.marketOption) {
+                  setNativeValue(info.selectEl, info.marketOption.value);
+                  info = inspectOrderExecutionType(nearInput);
                 }
-                return { mode: 'MARKET', rawType: selectedTypeText || 'market execution', pendingDirection: '' };
+                if (info.mode === 'PENDING') {
+                  const priceInput = findPendingEntryPriceInput(nearInput);
+                  if (priceInput && !String(priceInput.value || '').trim()) {
+                    return {
+                      ok: false,
+                      reason: 'Pending order mode (' + info.rawType + ') requires an entry price not supplied by current market signal'
+                    };
+                  }
+                }
+                return { ok: true, execInfo: info };
               }
 
               // Detects the actual visible order action control from the active ticket and order type:
@@ -2564,427 +3152,7 @@ object WebTerminalScripts {
               let discoveredMatchType = 'EXACT';
               let lastSelectedSymbolElement = null;
 
-              // --- SEPARATE MT5 DISCOVERY (Search symbol -> + / check -> Watchlist or Search fallback -> Chart verify) ---
-              async function discoverMT5Symbol(targetSymbol) {
-                const requested = String(targetSymbol || '').trim();
-                if (!requested) {
-                  return { success: false, platform: 'MT5', error: 'No symbol was supplied', discoveredSymbols: [] };
-                }
-
-                // RoboTrader Part 2 G: exact "Search symbol" selector first, plus fallback selectors
-                const searchSelectors = [
-                  "input[placeholder='Search symbol']",
-                  "input[placeholder*='Search symbol' i]",
-                  "input[aria-label*='Search symbol' i]",
-                  "input[placeholder*='search' i]",
-                  "input[aria-label*='search' i]",
-                  "input[type='search']"
-                ];
-
-                function findMT5SearchField() {
-                  for (let i = 0; i < searchSelectors.length; i++) {
-                    const hit = deepAll(searchSelectors[i]).find(isVisible);
-                    if (hit) return hit;
-                  }
-                  return null;
-                }
-
-                let searchInput = findMT5SearchField();
-                if (!searchInput) {
-                  setPhase('SYMBOL_SEARCHING', 'Locating MT5 Search symbol input for ' + requested + '...');
-                  const waitSearchStart = Date.now();
-                  let toggledQuotes = false;
-                  while (!searchInput && Date.now() - waitSearchStart < 1800) {
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                    if (!toggledQuotes) {
-                      const quotesOrSearchBtn = findButton(['quotes', 'market watch', 'search symbol', 'add symbol', 'symbols']);
-                      if (quotesOrSearchBtn) {
-                        singleClick(quotesOrSearchBtn);
-                        toggledQuotes = true;
-                      }
-                    }
-                    await wait(250);
-                    searchInput = findMT5SearchField();
-                  }
-                }
-
-                if (!searchInput) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'MT5 symbol search field not found',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                if (searchInput.value && normalise(searchInput.value) !== normalise(requested)) {
-                  clearMt5SearchBox(searchInput);
-                  await wait(120);
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                }
-
-                setPhase('SYMBOL_SEARCHING', 'Searching ' + requested + ' in MT5 Quotes...');
-                if (!setNativeInputValue(searchInput, requested)) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'Could not enter symbol in MT5 search field',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-                dispatchEnter(searchInput);
-
-                let result = await waitForSymbol(requested, 2600, null, VERIFIED_ALIASES, true);
-                if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                if (result && result.noSymbolsFound) result = null;
-
-                if (!result && VERIFIED_ALIASES && typeof VERIFIED_ALIASES === 'object') {
-                  const aliasKey = Object.keys(VERIFIED_ALIASES).find(function(k) {
-                    return normalise(k) === normalise(requested);
-                  });
-                  const aliasTarget = aliasKey ? String(VERIFIED_ALIASES[aliasKey] || '').trim() : '';
-                  if (aliasTarget && normalise(aliasTarget) !== normalise(requested)) {
-                    setPhase('SYMBOL_SEARCHING', 'Checking verified alias ' + aliasTarget + ' on MT5...');
-                    setNativeInputValue(searchInput, aliasTarget);
-                    dispatchEnter(searchInput);
-                    result = await waitForSymbol(requested, 1800, null, VERIFIED_ALIASES, true);
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                    if (result && result.noSymbolsFound) result = null;
-                  }
-                }
-
-                if (!result) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    error: 'error:Symbol ' + requested + ' not found',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                setPhase('SYMBOL_SEARCHING', 'Verifying ' + result.actualSymbol + ' in MT5 Quotes...');
-                const addAction = inspectMt5SearchResultAction(result.element);
-                const hasClearBtn = !!findMt5ClearSearchButton(searchInput);
-                let addedViaPlus = false;
-                let alreadyChecked = false;
-
-                if (addAction.state === 'PLUS' && addAction.control) {
-                  singleClick(addAction.control);
-                  addedViaPlus = true;
-                  await wait(300);
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                } else if (addAction.state === 'CHECK') {
-                  alreadyChecked = true;
-                }
-
-                let selectedRow = result.element;
-                let confirmedInWatchlist = false;
-                if (addAction.state !== 'NONE' || hasClearBtn) {
-                  clearMt5SearchBox(searchInput);
-                  await wait(250);
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-
-                  let watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                  const wStart = Date.now();
-                  while (!watchlistHit && Date.now() - wStart < 1200) {
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                    await wait(200);
-                    watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                  }
-                  if (!watchlistHit) {
-                    const scrollers = findMt5WatchlistScrollContainers(searchInput);
-                    for (let sIdx = 0; sIdx < scrollers.length && !watchlistHit; sIdx++) {
-                      const box = scrollers[sIdx];
-                      const prevTop = box.scrollTop || 0;
-                      const stepPx = Math.max(160, (box.clientHeight || 240) * 0.75);
-                      for (let step = 0; step < 5 && !watchlistHit; step++) {
-                        box.scrollTop = (step + 1) * stepPx;
-                        await wait(70);
-                        if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                        watchlistHit = findMt5DisplayedWatchlistRow(result.actualSymbol, VERIFIED_ALIASES);
-                      }
-                      if (!watchlistHit) box.scrollTop = prevTop;
-                    }
-                  }
-
-                  if (watchlistHit) {
-                    selectedRow = watchlistHit.element;
-                    confirmedInWatchlist = true;
-                  } else {
-                    // Virtualized/unadded fallback: re-enter symbol in Search symbol, click unrecognized '+' icon if present, and select row directly
-                    setPhase('SYMBOL_SEARCHING', 'Selecting ' + result.actualSymbol + ' from MT5 search...');
-                    setNativeInputValue(searchInput, result.actualSymbol);
-                    dispatchEnter(searchInput);
-                    let retryHit = await waitForSymbol(result.actualSymbol, 1800, null, VERIFIED_ALIASES, true);
-                    if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                    if (!retryHit || retryHit.noSymbolsFound) {
-                      return {
-                        success: false,
-                        platform: 'MT5',
-                        requestedSymbol: requested,
-                        actualSymbol: result.actualSymbol,
-                        error: 'MT5 symbol ' + result.actualSymbol + ' not present in displayed watchlist or search results',
-                        discoveredSymbols: discoverAllBrokerSymbols()
-                      };
-                    }
-                    const retryAdd = inspectMt5SearchResultAction(retryHit.element);
-                    const iconToClick = !addedViaPlus
-                      ? ((retryAdd.state === 'PLUS' && retryAdd.control)
-                          ? retryAdd.control
-                          : (retryAdd.state === 'NONE' ? retryAdd.fallbackControl : null))
-                      : null;
-                    if (iconToClick) {
-                      singleClick(iconToClick);
-                      addedViaPlus = true;
-                      await wait(250);
-                      if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                      const refreshedHit = findSymbolElement(result.actualSymbol, null, VERIFIED_ALIASES);
-                      selectedRow = (refreshedHit && refreshedHit.element) || retryHit.element;
-                    } else {
-                      selectedRow = retryHit.element;
-                    }
-                  }
-                }
-
-                const clicked = clickElement(selectedRow);
-                if (!clicked) {
-                  return {
-                    success: false,
-                    platform: 'MT5',
-                    requestedSymbol: requested,
-                    actualSymbol: result.actualSymbol,
-                    error: 'MT5 symbol result could not be selected',
-                    discoveredSymbols: discoverAllBrokerSymbols()
-                  };
-                }
-
-                await wait(250);
-                if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-
-                const chartState = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
-                if (chartState.state === 'MISMATCH') {
-                  clickElement(selectedRow);
-                  await wait(250);
-                  if (isCancelled()) return { success: false, platform: 'MT5', cancelled: true };
-                  const retryChart = verifyMt5ActiveChartSymbol(result.actualSymbol, VERIFIED_ALIASES);
-                  if (retryChart.state === 'MISMATCH') {
-                    return {
-                      success: false,
-                      platform: 'MT5',
-                      requestedSymbol: requested,
-                      actualSymbol: result.actualSymbol,
-                      error: 'MT5 active chart stayed on ' + retryChart.symbol + ' instead of ' + result.actualSymbol,
-                      discoveredSymbols: discoverAllBrokerSymbols()
-                    };
-                  }
-                }
-
-                return {
-                  success: true,
-                  platform: 'MT5',
-                  requestedSymbol: requested,
-                  actualSymbol: result.actualSymbol,
-                  matchRank: result.matchRank,
-                  matchType: result.matchType,
-                  addedViaPlus: addedViaPlus,
-                  alreadyChecked: alreadyChecked,
-                  confirmedInWatchlist: confirmedInWatchlist,
-                  resultClicked: true,
-                  element: selectedRow,
-                  discoveredSymbols: discoverAllBrokerSymbols(),
-                  message: 'Matching MT5 symbol verified and selected before trading'
-                };
-              }
-
-              // --- SEPARATE MT4 DISCOVERY (Market Watch -> Context Menu -> Symbols dialog / Show All -> Double Click row) ---
-              // NEVER falls back to MT5 search-field method and NEVER requires literal "Show All"!
-              async function discoverMT4Symbol(targetSymbol) {
-                const requested = String(targetSymbol || '').trim();
-                if (!requested) {
-                  return { success: false, platform: 'MT4', error: 'No symbol was supplied', discoveredSymbols: [] };
-                }
-
-                setPhase('SYMBOL_SEARCHING', 'Scanning MT4 Market Watch for ' + requested + '...');
-                let marketWatchPanel = findMarketWatchPanel();
-                if (!marketWatchPanel) {
-                  const waitMwStart = Date.now();
-                  let clickedMwToggle = false;
-                  while (!marketWatchPanel && Date.now() - waitMwStart < 1800) {
-                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-                    if (!clickedMwToggle) {
-                      const mwToggle = deepAll('button, [role="button"], [title*="Market Watch" i], [aria-label*="Market Watch" i], a').filter(isVisible).find(function(b) {
-                        const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).replace(/\s+/g, ' ').trim().toLowerCase();
-                        return t.includes('market watch');
-                      });
-                      if (mwToggle) {
-                        singleClick(mwToggle);
-                        clickedMwToggle = true;
-                      }
-                    }
-                    await wait(250);
-                    marketWatchPanel = findMarketWatchPanel();
-                  }
-                }
-
-                let result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                let usedSymbolsDialog = false;
-
-                if (!result) {
-                  if (!marketWatchPanel) {
-                    return {
-                      success: false,
-                      platform: 'MT4',
-                      requestedSymbol: requested,
-                      error: 'MT4 Market Watch panel not found',
-                      discoveredSymbols: discoverAllBrokerSymbols()
-                    };
-                  }
-
-                  setPhase('SYMBOL_SEARCHING', 'Opening MT4 Symbols / Show All for ' + requested + '...');
-                  openMT4ContextMenu(marketWatchPanel);
-                  await wait(300);
-                  if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-
-                  const symbolsItem = findMT4SymbolsMenuItem();
-                  const showAll = findMT4ShowAllMenuItem();
-
-                  if (symbolsItem) {
-                    usedSymbolsDialog = true;
-                    if (!clickMT4MenuItem(symbolsItem)) {
-                      return {
-                        success: false,
-                        platform: 'MT4',
-                        requestedSymbol: requested,
-                        error: 'Could not open MT4 Symbols command',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                      };
-                    }
-                    await wait(250);
-                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-
-                    let dialog = findMT4SymbolsDialog();
-                    const dStart = Date.now();
-                    while (!dialog && Date.now() - dStart < 1800) {
-                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-                      await wait(200);
-                      dialog = findMT4SymbolsDialog();
-                    }
-                    if (dialog) {
-                      for (let pass = 0; pass < 3; pass++) {
-                        const toggled = expandMT4SymbolGroups(dialog);
-                        if (!toggled) break;
-                        await wait(180);
-                      }
-                      if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-
-                      const dlgHit = findSymbolElement(requested, dialog, VERIFIED_ALIASES);
-                      if (dlgHit) {
-                        singleClick(dlgHit.element);
-                        await wait(150);
-                        if (!isMT4DialogRowAlreadyShown(dlgHit.element)) {
-                          const showBtn = findExactVisibleText('Show', "button, [role='button']", dialog);
-                          if (showBtn && !showBtn.disabled) {
-                            singleClick(showBtn);
-                          } else {
-                            doubleClickMT4Row(dlgHit.element);
-                          }
-                          await wait(220);
-                        }
-                      }
-                      closeMT4SymbolsDialog(dialog);
-                    }
-                  } else if (showAll) {
-                    if (!clickMT4ShowAllMenuItem(showAll)) {
-                      return {
-                        success: false,
-                        platform: 'MT4',
-                        requestedSymbol: requested,
-                        error: 'Could not activate MT4 Show All',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                      };
-                    }
-                  } else {
-                    return {
-                      success: false,
-                      platform: 'MT4',
-                      requestedSymbol: requested,
-                      error: 'MT4 Symbols or Show All menu option not found',
-                      discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                    };
-                  }
-
-                  setPhase('SYMBOL_SEARCHING', 'Refreshing MT4 Market Watch for ' + requested + '...');
-                  await wait(350);
-                  if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-
-                  const mwStart = Date.now();
-                  const initialWaitMs = usedSymbolsDialog ? 2000 : 3500;
-                  while (Date.now() - mwStart < initialWaitMs) {
-                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-                    result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                    if (result) break;
-                    await wait(250);
-                  }
-
-                  if (!result && usedSymbolsDialog) {
-                    setPhase('SYMBOL_SEARCHING', 'Running MT4 Show All fallback for ' + requested + '...');
-                    openMT4ContextMenu(marketWatchPanel);
-                    await wait(250);
-                    if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-                    const fallbackShowAll = findMT4ShowAllMenuItem();
-                    if (fallbackShowAll && clickMT4ShowAllMenuItem(fallbackShowAll)) {
-                      await wait(300);
-                      const fbStart = Date.now();
-                      while (Date.now() - fbStart < 2500) {
-                        if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true };
-                        result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
-                        if (result) break;
-                        await wait(250);
-                      }
-                    }
-                  }
-                }
-
-                if (!result) {
-                  return {
-                    success: false,
-                    platform: 'MT4',
-                    requestedSymbol: requested,
-                    error: 'error:Symbol ' + requested + ' not found',
-                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                  };
-                }
-
-                clickElement(result.element);
-                const opened = doubleClickMT4Row(result.element);
-                if (!opened) {
-                  return {
-                    success: false,
-                    platform: 'MT4',
-                    requestedSymbol: requested,
-                    actualSymbol: result.actualSymbol,
-                    error: 'Could not open the MT4 instrument row',
-                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
-                  };
-                }
-
-                return {
-                  success: true,
-                  platform: 'MT4',
-                  requestedSymbol: requested,
-                  actualSymbol: result.actualSymbol,
-                  matchRank: result.matchRank,
-                  matchType: result.matchType,
-                  usedSymbolsDialog: usedSymbolsDialog,
-                  doubleClickSent: true,
-                  element: result.element,
-                  discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel),
-                  message: 'Matching MT4 Market Watch row selected; verify the order ticket before trading'
-                };
-              }
+              // Discovery routines are unified above via buildSharedPlatformDiscoveryRoutines().
 
               // Expanded with RoboTrader Part 2 L + JustMarkets MT5 screenshot order-ticket error phrases
               const BROKER_ERROR_TERMS = [
@@ -3469,9 +3637,9 @@ object WebTerminalScripts {
                 };
               }
 
-              // Safety guard: distinguishes real result/order-entry modals from open positions/pending-orders rows
+              // Safety guard: distinguishes real result/order-entry modals from open positions/pending-orders/history rows
               function isInsidePositionOrOrderTable(el) {
-                return !!(el && el.closest && el.closest('table, tbody, tr, [role="row"], [class*="position"], [class*="positions"], [class*="history"], [class*="deal"], [class*="orders"]'));
+                return !!(el && el.closest && el.closest('table, tbody, tr, [role="row"], [class*="position" i], [class*="positions" i], [class*="history" i], [class*="deal" i], [class*="orders" i]'));
               }
 
               function isUnsafePositionActionLabel(text) {
@@ -3486,7 +3654,11 @@ object WebTerminalScripts {
               }
 
               function isDialogLikeContainer(el) {
-                return !!(el && el.closest && el.closest('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"], [class*="receipt"], [class*="popup"], [class*="trade-form"], [class*="order-ticket"], [class*="page-window"], [class*="alert"]'));
+                return !!(el && el.closest && el.closest('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="dialog" i], [class*="receipt" i], [class*="popup" i], [class*="trade-form" i], [class*="order-ticket" i], [class*="order-panel" i], [class*="trade-result" i], [class*="page-window" i], [class*="alert" i]'));
+              }
+
+              function isOrderSubmitOrNavLabel(lowerText) {
+                return /^(?:buy|sell|buy by market|sell by market|place|place order|submit|connect|connect to account|login|sign in|search|quotes|chart|trade|history|new order)$/.test(lowerText);
               }
 
               function findScopedResultOkButton() {
@@ -3500,26 +3672,39 @@ object WebTerminalScripts {
                 }) || null;
               }
 
-              // RoboTrader Part 2 M exact recovered dismissal behavior, scoped safely so open positions/orders
-              // are never closed.
-              function dismissTradeResult() {
+              function findScopedDialogDismissControl() {
                 const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const buttons = queryDeepAll('button').filter(isVisible);
-                const okButton = buttons.find(button => {
-                  if (isInsidePositionOrOrderTable(button)) return false;
-                  return normalize(button.innerText || button.textContent) === 'OK';
-                });
+                const okBtn = findScopedResultOkButton();
+                if (okBtn) return okBtn;
+
+                const containers = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="dialog" i], [class*="receipt" i], [class*="popup" i], [class*="trade-result" i], [class*="order-ticket" i], [class*="order-panel" i], .trade-form').filter(isVisible);
+                for (let i = 0; i < containers.length; i++) {
+                  const box = containers[i];
+                  const boxLower = (box.textContent || '').toLowerCase();
+                  if ((boxLower.includes('market watch') || boxLower.includes('search symbol')) && boxLower.includes('balance') && !boxLower.includes('buy') && !boxLower.includes('ok')) continue;
+                  const controls = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a[role="button"], [aria-label*="close" i], [title*="close" i]')).filter(isVisible);
+                  const hit = controls.find(btn => {
+                    if (isInsidePositionOrOrderTable(btn)) return false;
+                    const txt = normalize(btn.innerText || btn.value || btn.textContent || btn.getAttribute('aria-label') || btn.getAttribute('title'));
+                    if (!txt) return false;
+                    if (isUnsafePositionActionLabel(txt)) return false;
+                    const tl = txt.toLowerCase();
+                    if (isOrderSubmitOrNavLabel(tl)) return false;
+                    return tl === 'ok' || tl === 'close' || tl === 'done' || tl === 'cancel' || tl === 'dismiss' || tl === 'got it' || tl === '×' || tl === '✕' || tl === 'x' || tl === 'close dialog' || tl === 'close order' || tl === 'close form';
+                  });
+                  if (hit) return hit;
+                }
+                return null;
+              }
+
+              // Dismisses only scoped result or order dialogs; never interacts with open positions/pending orders tables.
+              function dismissTradeResult() {
+                const okButton = findScopedResultOkButton();
                 if (okButton) {
                   singleClick(okButton);
                   return 'dismissed:ok';
                 }
-                const closeButton = buttons.find(button => {
-                  if (isInsidePositionOrOrderTable(button)) return false;
-                  if (!isDialogLikeContainer(button)) return false;
-                  const text = normalize(button.innerText || button.textContent || button.getAttribute('aria-label'));
-                  if (isUnsafePositionActionLabel(text)) return false;
-                  return text === 'Close' || text === 'Done' || text === 'Cancel';
-                });
+                const closeButton = findScopedDialogDismissControl();
                 if (closeButton) {
                   singleClick(closeButton);
                   return 'dismissed:close';
@@ -3529,7 +3714,7 @@ object WebTerminalScripts {
 
               function findStaleOrderEntryCloseButton() {
                 const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const orderContainers = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="dialog"], [class*="modal"], [class*="trade-form"], [class*="order-ticket"], [class*="order-panel"], [class*="page-window"]').filter(isVisible);
+                const orderContainers = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="dialog" i], [class*="modal" i], [class*="trade-form" i], [class*="order-ticket" i], [class*="order-panel" i], [class*="page-window" i]').filter(isVisible);
                 for (let i = 0; i < orderContainers.length; i++) {
                   const box = orderContainers[i];
                   const boxLower = (box.textContent || '').toLowerCase();
@@ -3541,51 +3726,98 @@ object WebTerminalScripts {
                     boxLower.includes('market execution') ||
                     !!box.querySelector('#volume, input[name="volume"], .trade-input');
                   if (!looksLikeOrderOrResult) continue;
-                  const btns = Array.from(box.querySelectorAll('button, [role="button"], [aria-label*="close" i], [title*="close" i]')).filter(isVisible);
+                  const btns = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], [aria-label*="close" i], [title*="close" i]')).filter(isVisible);
                   const closeBtn = btns.find(b => {
                     if (isInsidePositionOrOrderTable(b)) return false;
-                    const t = normalize(b.innerText || b.textContent || b.getAttribute('aria-label') || b.getAttribute('title'));
+                    const t = normalize(b.innerText || b.value || b.textContent || b.getAttribute('aria-label') || b.getAttribute('title'));
                     if (isUnsafePositionActionLabel(t)) return false;
                     const tl = t.toLowerCase();
-                    return tl === 'close' || tl === 'cancel' || tl === 'done' || tl === 'ok' || tl === '×' || tl === 'x' || tl === 'close order' || tl === 'close form';
+                    if (isOrderSubmitOrNavLabel(tl)) return false;
+                    return tl === 'close' || tl === 'cancel' || tl === 'done' || tl === 'ok' || tl === 'dismiss' || tl === '×' || tl === '✕' || tl === 'x' || tl === 'close order' || tl === 'close form';
                   });
                   if (closeBtn) return closeBtn;
                 }
                 return null;
               }
 
+              function hasOpenBlockingModalContainer() {
+                const modalBoxes = queryDeepAll('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="receipt" i], [class*="popup" i], [class*="trade-result" i], [class*="order-dialog" i]').filter(isVisible);
+                return modalBoxes.some(box => {
+                  if (isInsidePositionOrOrderTable(box)) return false;
+                  const cls = ((box.className || '') + ' ' + (box.getAttribute('aria-label') || '')).toLowerCase();
+                  if (cls.includes('market-watch') || cls.includes('mt4-ctx-menu') || cls.includes('page-menu')) return false;
+                  const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!txt) return false;
+                  if (txt.includes('market watch') && txt.includes('balance') && !txt.includes('buy') && !txt.includes('ok')) return false;
+                  if (txt.includes('symbols') && (txt.includes('specification') || txt.includes('show') && txt.includes('hide'))) return false;
+                  if (txt.includes('connect to account') && !txt.includes('buy') && !txt.includes('sell')) return false;
+                  return true;
+                });
+              }
+
               function hasOpenOrderOrResultDialog() {
                 if (findScopedResultOkButton()) return true;
-                const staleClose = findStaleOrderEntryCloseButton();
-                if (staleClose) return true;
+                if (findScopedDialogDismissControl()) return true;
+                if (findStaleOrderEntryCloseButton()) return true;
+                if (hasOpenBlockingModalContainer()) return true;
                 return false;
+              }
+
+              // Closes blocking order-entry/result/rejection dialogs safely (never open positions/pending orders),
+              // retries refused clicks, and confirms the blocking modal actually disappeared from the DOM.
+              async function dismissBlockingDialogsAndConfirmClear(maxAttempts, waitTimeoutMs) {
+                const attemptsLimit = Number(maxAttempts || 8);
+                const verifyTimeout = Number(waitTimeoutMs || 1400);
+                let actions = 0;
+
+                for (let step = 0; step < attemptsLimit; step++) {
+                  if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
+                  if (!hasOpenOrderOrResultDialog()) {
+                    return { cleared: true, actions: actions };
+                  }
+                  const targetBtn =
+                    findScopedResultOkButton() ||
+                    findScopedDialogDismissControl() ||
+                    findStaleOrderEntryCloseButton();
+                  if (targetBtn) {
+                    singleClick(targetBtn);
+                    actions++;
+                    await wait(140);
+                  } else {
+                    await wait(120);
+                  }
+                }
+
+                const pollStart = Date.now();
+                while (Date.now() - pollStart < verifyTimeout) {
+                  if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
+                  if (!hasOpenOrderOrResultDialog()) {
+                    return { cleared: true, actions: actions };
+                  }
+                  const retryBtn =
+                    findScopedResultOkButton() ||
+                    findScopedDialogDismissControl() ||
+                    findStaleOrderEntryCloseButton();
+                  if (retryBtn) {
+                    singleClick(retryBtn);
+                    actions++;
+                  }
+                  await wait(110);
+                }
+
+                const stillOpen = hasOpenOrderOrResultDialog();
+                return {
+                  cleared: !stillOpen,
+                  actions: actions,
+                  reason: stillOpen ? 'Blocking order or result dialog remained open in DOM' : ''
+                };
               }
 
               // Closes ONLY stale order-entry and result dialogs from a previous signal (never open positions/pending orders),
               // and waits to confirm the old modal/dialog state cleared before proceeding.
               async function clearStaleDialogsBeforeNewSignal() {
-                for (let step = 0; step < 5; step++) {
-                  if (isCancelled()) return false;
-                  const resultAction = dismissTradeResult();
-                  if (resultAction !== 'dismissed:none') {
-                    await wait(120);
-                    continue;
-                  }
-                  const orderCloseBtn = findStaleOrderEntryCloseButton();
-                  if (orderCloseBtn) {
-                    singleClick(orderCloseBtn);
-                    await wait(120);
-                    continue;
-                  }
-                  break;
-                }
-                const start = Date.now();
-                while (Date.now() - start < 1200) {
-                  if (isCancelled()) return false;
-                  if (!hasOpenOrderOrResultDialog()) return true;
-                  await wait(100);
-                }
-                return !hasOpenOrderOrResultDialog();
+                const res = await dismissBlockingDialogsAndConfirmClear(8, 1200);
+                return !!res.cleared;
               }
 
               // Inspects visible .error / [role="alert"] / [aria-live="assertive"] nodes (RoboTrader Part 2 K & L)
@@ -3670,94 +3902,187 @@ object WebTerminalScripts {
                 return '';
               }
 
+              async function openMT4NewOrderForRow(rowEl) {
+                const mwPanel = findMarketWatchPanel();
+                const rowTarget = (rowEl && isRenderedVisible(rowEl) ? rowEl : null) ||
+                  (mwPanel ? (findMT4MarketWatchSymbolRow(activeSymbolName, mwPanel, VERIFIED_ALIASES) || {}).element : null);
+                if (!rowTarget) return false;
+                lastSelectedSymbolElement = rowTarget;
+                if (!openMT4RowContextMenu(rowTarget)) return false;
+                const start = Date.now();
+                let newOrderMi = findMT4NewOrderMenuItem();
+                while (!newOrderMi && Date.now() - start < 600) {
+                  if (isCancelled()) return false;
+                  await wait(80);
+                  newOrderMi = findMT4NewOrderMenuItem();
+                }
+                if (newOrderMi) {
+                  return clickMT4MenuItem(newOrderMi);
+                }
+                // Fallback if broker binds right-click contextmenu on a child cell
+                const firstCell = rowTarget.querySelector ? rowTarget.querySelector('td') : null;
+                if (firstCell && firstCell !== rowTarget && openMT4RowContextMenu(firstCell)) {
+                  await wait(120);
+                  const cellNewOrderMi = findMT4NewOrderMenuItem();
+                  if (cellNewOrderMi) return clickMT4MenuItem(cellNewOrderMi);
+                }
+                return false;
+              }
+
+              async function openOrderFormForCurrentPlatform() {
+                if (PLATFORM === 'MT5') {
+                  const formStatus = openMT5TradeForm();
+                  if (formStatus === 'loading:trade_form_trigger_missing') {
+                    const newOrderBtn = findStrictNewOrderButton();
+                    if (newOrderBtn) singleClick(newOrderBtn);
+                    else dispatchF9TradeFormShortcut();
+                  }
+                  return true;
+                } else {
+                  if (await openMT4NewOrderForRow(lastSelectedSymbolElement)) {
+                    return true;
+                  }
+                  const newOrderBtn = findStrictNewOrderButton();
+                  if (newOrderBtn) {
+                    singleClick(newOrderBtn);
+                    return true;
+                  }
+                  dispatchF9TradeFormShortcut();
+                  return false;
+                }
+              }
+
               function executeSequentialTrades() {
                 let currentTrade = 0;
                 let confirmedCount = 0;
 
-                function runNextTrade() {
+                async function runNextTrade() {
                   if (isCancelled()) return;
                   currentTrade++;
                   setPhase('PREPARE', 'Preparing trade ' + currentTrade + '/' + COUNT + ' (' + DIRECTION + ' ' + LOT + ' ' + activeSymbolName + ')...');
-                  dismissTradeResult();
+                  const preClear = await dismissBlockingDialogsAndConfirmClear(6, 1200);
+                  if (isCancelled()) return;
+                  if (!preClear.cleared) {
+                    const blockedMsg = 'Previous blocking dialog remained open before Trade ' + currentTrade + '/' + COUNT + ': ' + preClear.reason;
+                    emitTradeResult({
+                      status: 'REJECTED',
+                      platform: PLATFORM,
+                      requestedSymbol: SYMBOL,
+                      actualSymbol: activeSymbolName,
+                      direction: DIRECTION,
+                      lot: LOT,
+                      tradeIndex: currentTrade,
+                      tradeCount: COUNT,
+                      confirmedCount: confirmedCount,
+                      ticket: '',
+                      rawMessage: blockedMsg,
+                      retried: false
+                    });
+                    setPhase('ERROR', blockedMsg);
+                    log(blockedMsg, true, true);
+                    return;
+                  }
                   ensureOrderPanelAndSubmit(0);
                 }
 
-                function ensureOrderPanelAndSubmit(openWaitTicks) {
+                async function ensureOrderPanelAndSubmit(openWaitTicks) {
                   if (isCancelled()) return;
-                  dismissTradeResult();
 
-                  const fields = populateOrderFields();
-                  const actionBtn = findOrderActionButton(DIRECTION, fields.volInput);
+                  const preVolCheck = (PLATFORM === 'MT5' ? findMt5TradeInputByLabel('Volume') : document.getElementById('volume'))
+                    || findOrderFieldInput(visibleInputs(), ['volume', 'lot', 'size', 'qty'], ['stop loss', 'take profit', 'comment']);
+                  const preBtnCheck = findOrderActionButton(DIRECTION, preVolCheck);
 
-                  if (!actionBtn || !fields.volInput) {
+                  if (!preBtnCheck || !preVolCheck) {
                     if (openWaitTicks === 0 || openWaitTicks === 5) {
-                      if (PLATFORM === 'MT5') {
-                        const openRes = openMT5TradeForm();
-                        if (openRes === 'loading:trade_form_trigger_missing') {
-                          const reopenBtn = findStrictNewOrderButton();
-                          if (reopenBtn) singleClick(reopenBtn);
-                          else dispatchF9TradeFormShortcut();
-                        }
-                      } else {
-                        const reopenBtn = findStrictNewOrderButton();
-                        if (reopenBtn) singleClick(reopenBtn);
-                        else if (lastSelectedSymbolElement && isVisible(lastSelectedSymbolElement)) doubleClickMT4Row(lastSelectedSymbolElement);
-                        else dispatchF9TradeFormShortcut();
-                      }
+                      await openOrderFormForCurrentPlatform();
+                      if (isCancelled()) return;
                     }
-                    if (openWaitTicks < 14) {
-                      schedule(function() {
-                        ensureOrderPanelAndSubmit(openWaitTicks + 1);
-                      }, 300);
+                    const postOpenInputs = visibleInputs();
+                    const postVol = (PLATFORM === 'MT5' ? findMt5TradeInputByLabel('Volume') : document.getElementById('volume'))
+                      || findOrderFieldInput(postOpenInputs, ['volume', 'lot', 'size', 'qty'], ['stop loss', 'take profit', 'comment']);
+                    const postBtn = findOrderActionButton(DIRECTION, postVol);
+                    if (!postVol || !postBtn) {
+                      if (openWaitTicks < 14) {
+                        schedule(function() {
+                          ensureOrderPanelAndSubmit(openWaitTicks + 1);
+                        }, 300);
+                        return;
+                      }
+                      const errText = confirmedCount > 0
+                        ? ('Order dialog did not reopen after ' + confirmedCount + '/' + COUNT + ' confirmed trade(s) on ' + activeSymbolName)
+                        : ('Order controls not ready (' + activeSymbolName + ' ' + DIRECTION + ' ' + LOT + '). Open New Order in ' + PLATFORM + ' Web Terminal to inspect.');
+                      emitTradeResult({
+                        status: 'REJECTED',
+                        platform: PLATFORM,
+                        requestedSymbol: SYMBOL,
+                        actualSymbol: activeSymbolName,
+                        direction: DIRECTION,
+                        lot: LOT,
+                        tradeIndex: currentTrade,
+                        tradeCount: COUNT,
+                        confirmedCount: confirmedCount,
+                        ticket: '',
+                        rawMessage: errText,
+                        retried: false
+                      });
+                      setPhase('ERROR', errText);
+                      log(errText, true, true);
                       return;
                     }
-                    if (confirmedCount > 0) {
-                      const partialErr = 'Order dialog did not reopen after ' + confirmedCount + '/' + COUNT + ' confirmed trade(s) on ' + activeSymbolName;
-                      emitTradeResult({
-                        status: 'REJECTED',
-                        platform: PLATFORM,
-                        requestedSymbol: SYMBOL,
-                        actualSymbol: activeSymbolName,
-                        direction: DIRECTION,
-                        lot: LOT,
-                        tradeIndex: currentTrade,
-                        tradeCount: COUNT,
-                        confirmedCount: confirmedCount,
-                        ticket: '',
-                        rawMessage: partialErr,
-                        retried: false
-                      });
-                      setPhase('ERROR', partialErr);
-                      log(partialErr, true, true);
-                    } else {
-                      const msg = 'Order controls not ready (' + activeSymbolName + ' ' + DIRECTION + ' ' + LOT + '). Open New Order in ' + PLATFORM + ' Web Terminal to inspect.';
-                      emitTradeResult({
-                        status: 'REJECTED',
-                        platform: PLATFORM,
-                        requestedSymbol: SYMBOL,
-                        actualSymbol: activeSymbolName,
-                        direction: DIRECTION,
-                        lot: LOT,
-                        tradeIndex: currentTrade,
-                        tradeCount: COUNT,
-                        confirmedCount: confirmedCount,
-                        ticket: '',
-                        rawMessage: msg,
-                        retried: false
-                      });
-                      setPhase('ERROR', msg);
-                      log(msg, true, true);
-                    }
+                  }
+
+                  const fields = populateOrderFields();
+                  const execCheck = ensureExecutionTypeForSignal(fields.volInput);
+                  if (!execCheck.ok) {
+                    await dismissBlockingDialogsAndConfirmClear(6, 1000);
+                    emitTradeResult({
+                      status: 'REJECTED',
+                      platform: PLATFORM,
+                      requestedSymbol: SYMBOL,
+                      actualSymbol: activeSymbolName,
+                      direction: DIRECTION,
+                      lot: LOT,
+                      tradeIndex: currentTrade,
+                      tradeCount: COUNT,
+                      confirmedCount: confirmedCount,
+                      ticket: '',
+                      rawMessage: execCheck.reason,
+                      retried: false
+                    });
+                    setPhase('ERROR', execCheck.reason);
+                    log(execCheck.reason, true, true);
                     return;
                   }
 
                   const refreshedFields = populateOrderFields();
-                  const finalBtn = findOrderActionButton(DIRECTION, refreshedFields.volInput) || actionBtn;
+                  const finalBtn = findOrderActionButton(DIRECTION, refreshedFields.volInput);
+                  if (!finalBtn) {
+                    const msg = 'Order submit control missing for ' + activeSymbolName + ' ' + DIRECTION;
+                    await dismissBlockingDialogsAndConfirmClear(6, 1000);
+                    emitTradeResult({
+                      status: 'REJECTED',
+                      platform: PLATFORM,
+                      requestedSymbol: SYMBOL,
+                      actualSymbol: activeSymbolName,
+                      direction: DIRECTION,
+                      lot: LOT,
+                      tradeIndex: currentTrade,
+                      tradeCount: COUNT,
+                      confirmedCount: confirmedCount,
+                      ticket: '',
+                      rawMessage: msg,
+                      retried: false
+                    });
+                    setPhase('ERROR', msg);
+                    log(msg, true, true);
+                    return;
+                  }
 
                   // Pre-click visible error node + ticket footer banner inspection (Screenshot 4 / RoboTrader Part 2 K)
                   const preError = findVisibleAlertOrErrorText(null) || findOrderFormErrorBanner(refreshedFields.volInput);
                   if (preError && isBrokerErrorText(preError)) {
                     const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected before submit: ' + preError;
+                    await dismissBlockingDialogsAndConfirmClear(6, 1000);
                     emitTradeResult({
                       status: 'REJECTED',
                       platform: PLATFORM,
@@ -3779,6 +4104,7 @@ object WebTerminalScripts {
 
                   const verification = verifySelectedInstrumentAndOrderForm(refreshedFields, finalBtn);
                   if (!verification.ok) {
+                    await dismissBlockingDialogsAndConfirmClear(6, 1000);
                     emitTradeResult({
                       status: 'REJECTED',
                       platform: PLATFORM,
@@ -3799,7 +4125,7 @@ object WebTerminalScripts {
                   }
 
                   let readyTicks = 0;
-                  function waitUntilReadyAndSubmitOnce() {
+                  async function waitUntilReadyAndSubmitOnce() {
                     if (isCancelled()) return;
                     // Never force-enable a disabled trade button! Respect terminal disabled state and inspect validation errors.
                     if (isButtonBusyOrDisabled(finalBtn)) {
@@ -3807,6 +4133,7 @@ object WebTerminalScripts {
                       const invalidFieldErr = findInvalidFieldMessage() || bannerErr;
                       if (invalidFieldErr) {
                         const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + invalidFieldErr;
+                        await dismissBlockingDialogsAndConfirmClear(6, 1000);
                         emitTradeResult({
                           status: 'REJECTED',
                           platform: PLATFORM,
@@ -3831,6 +4158,7 @@ object WebTerminalScripts {
                         return;
                       }
                       const busyMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected: Order button stayed disabled (' + activeSymbolName + '). Check market hours or Volume/SL/TP.';
+                      await dismissBlockingDialogsAndConfirmClear(6, 1000);
                       emitTradeResult({
                         status: 'REJECTED',
                         platform: PLATFORM,
@@ -3884,7 +4212,69 @@ object WebTerminalScripts {
                       let polls = 0;
                       const maxPolls = MAX_CONFIRM_POLLS;
 
-                      function pollConfirmation() {
+                      async function finishRejectedAndCleanup(rawRejectMsg, formattedErrMsg) {
+                        await dismissBlockingDialogsAndConfirmClear(8, 1400);
+                        if (isCancelled()) return;
+                        emitTradeResult({
+                          status: 'REJECTED',
+                          platform: PLATFORM,
+                          requestedSymbol: SYMBOL,
+                          actualSymbol: activeSymbolName,
+                          direction: DIRECTION,
+                          lot: LOT,
+                          tradeIndex: currentTrade,
+                          tradeCount: COUNT,
+                          confirmedCount: confirmedCount,
+                          ticket: '',
+                          rawMessage: rawRejectMsg,
+                          retried: false
+                        });
+                        setPhase('ERROR', formattedErrMsg);
+                        log(formattedErrMsg, true, true);
+                      }
+
+                      async function finishAcceptedAndCleanup(summary, statusText, newTicket) {
+                        confirmedCount++;
+                        emitTradeResult({
+                          status: 'ACCEPTED',
+                          platform: PLATFORM,
+                          requestedSymbol: SYMBOL,
+                          actualSymbol: activeSymbolName,
+                          direction: DIRECTION,
+                          lot: LOT,
+                          tradeIndex: currentTrade,
+                          tradeCount: COUNT,
+                          confirmedCount: confirmedCount,
+                          ticket: newTicket,
+                          rawMessage: statusText || summary,
+                          retried: false
+                        });
+                        setPhase('TRADE_CONFIRMED:' + currentTrade + ':' + COUNT, summary);
+                        log(summary, false, false);
+
+                        const postClear = await dismissBlockingDialogsAndConfirmClear(8, 1500);
+                        if (isCancelled()) return;
+                        if (!postClear.cleared && currentTrade < COUNT) {
+                          const haltErr = 'Trade ' + currentTrade + '/' + COUNT + ' confirmed, but blocking dialog remained open — halted Trade ' + (currentTrade + 1) + '/' + COUNT + '.';
+                          setPhase('ERROR', haltErr);
+                          log(haltErr, true, true);
+                          return;
+                        }
+
+                        if (currentTrade >= COUNT) {
+                          const finalMsg = COUNT > 1
+                            ? 'All ' + COUNT + '/' + COUNT + ' trades confirmed · ' + summary
+                            : summary;
+                          setPhase('DONE', finalMsg);
+                          log(finalMsg, false, true);
+                        } else {
+                          setPhase('TERMINAL_CLEAR:' + currentTrade + ':' + COUNT, 'Terminal clear — preparing Trade ' + (currentTrade + 1) + '/' + COUNT + '...');
+                          log('Waiting 2s before Trade ' + (currentTrade + 1) + '/' + COUNT + '...', false, false);
+                          schedule(runNextTrade, 2000);
+                        }
+                      }
+
+                      async function pollConfirmation() {
                         if (isCancelled()) return;
                         polls++;
 
@@ -3894,26 +4284,10 @@ object WebTerminalScripts {
                         const rawStatusText = extractMt5StatusText(okBtn);
                         const statusText = (rawStatusText && !baseAlertTexts.has(rawStatusText)) ? rawStatusText : '';
 
-                        // 1. RoboTrader Part 2 L: inspect visible status/message/error/.alert nodes first for broker rejections
+                        // 1. Inspect visible status/message/error/.alert nodes first for broker rejections
                         if (statusText && isBrokerErrorText(statusText)) {
-                          dismissTradeResult();
                           const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + statusText.slice(0, 160);
-                          emitTradeResult({
-                            status: 'REJECTED',
-                            platform: PLATFORM,
-                            requestedSymbol: SYMBOL,
-                            actualSymbol: activeSymbolName,
-                            direction: DIRECTION,
-                            lot: LOT,
-                            tradeIndex: currentTrade,
-                            tradeCount: COUNT,
-                            confirmedCount: confirmedCount,
-                            ticket: '',
-                            rawMessage: statusText,
-                            retried: false
-                          });
-                          setPhase('ERROR', errMsg);
-                          log(errMsg, true, true);
+                          await finishRejectedAndCleanup(statusText, errMsg);
                           return;
                         }
 
@@ -3922,24 +4296,8 @@ object WebTerminalScripts {
                           if (!baseErrorSet.has(term) && curLower.includes(term)) {
                             const lines = curText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
                             const snippet = (lines.find(l => l.toLowerCase().includes(term)) || term).slice(0, 140);
-                            dismissTradeResult();
                             const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + snippet;
-                            emitTradeResult({
-                              status: 'REJECTED',
-                              platform: PLATFORM,
-                              requestedSymbol: SYMBOL,
-                              actualSymbol: activeSymbolName,
-                              direction: DIRECTION,
-                              lot: LOT,
-                              tradeIndex: currentTrade,
-                              tradeCount: COUNT,
-                              confirmedCount: confirmedCount,
-                              ticket: '',
-                              rawMessage: snippet,
-                              retried: false
-                            });
-                            setPhase('ERROR', errMsg);
-                            log(errMsg, true, true);
+                            await finishRejectedAndCleanup(snippet, errMsg);
                             return;
                           }
                         }
@@ -3964,42 +4322,17 @@ object WebTerminalScripts {
                         const hasExplicitStatusAccept = !!(statusText && (okBtn || hasNewReceiptPhrase || hasNewTicket) && isExplicitAcceptanceStatusText(statusText));
 
                         if (hasNewTicket || positionsIncreased || marginIncreased || hasNewReceiptPhrase || hasExplicitStatusAccept) {
-                          confirmedCount++;
                           const summary = extractDealSummary(curText, baseTickets, currentTrade, statusText);
-                          emitTradeResult({
-                            status: 'ACCEPTED',
-                            platform: PLATFORM,
-                            requestedSymbol: SYMBOL,
-                            actualSymbol: activeSymbolName,
-                            direction: DIRECTION,
-                            lot: LOT,
-                            tradeIndex: currentTrade,
-                            tradeCount: COUNT,
-                            confirmedCount: confirmedCount,
-                            ticket: newTicket,
-                            rawMessage: statusText || summary,
-                            retried: false
-                          });
-                          setPhase('TRADE_CONFIRMED:' + currentTrade + ':' + COUNT, summary);
-                          log(summary, false, false);
-                          dismissTradeResult();
-
-                          if (currentTrade >= COUNT) {
-                            const finalMsg = COUNT > 1
-                              ? 'All ' + COUNT + '/' + COUNT + ' trades confirmed · ' + summary
-                              : summary;
-                            setPhase('DONE', finalMsg);
-                            log(finalMsg, false, true);
-                          } else {
-                            log('Waiting 2s before Trade ' + (currentTrade + 1) + '/' + COUNT + '...', false, false);
-                            schedule(runNextTrade, 2000);
-                          }
+                          await finishAcceptedAndCleanup(summary, statusText, newTicket);
                           return;
                         }
 
                         if (polls >= maxPolls) {
-                          // RoboTrader no-blind-retry rule: report ambiguous timeout as UNKNOWN and stop immediately!
-                          const unknownMsg = 'Trade ' + currentTrade + '/' + COUNT + ' status UNKNOWN (' + confirmedCount + '/' + COUNT + ' confirmed): error:Unable to confirm trade submission. The trade was not retried.';
+                          // No-blind-retry rule: clean up blocking UI if possible, report UNKNOWN, and stop!
+                          const unknownClear = await dismissBlockingDialogsAndConfirmClear(8, 1400);
+                          if (isCancelled()) return;
+                          const unknownMsg = 'Trade ' + currentTrade + '/' + COUNT + ' status UNKNOWN (' + confirmedCount + '/' + COUNT + ' confirmed): error:Unable to confirm trade submission. The trade was not retried.' +
+                            (unknownClear.cleared ? '' : ' [terminal dialog remained open]');
                           emitTradeResult({
                             status: 'UNKNOWN',
                             platform: PLATFORM,
@@ -4032,7 +4365,7 @@ object WebTerminalScripts {
                 runNextTrade();
               }
 
-              function waitForOrderControlsThenRun(tries) {
+              async function waitForOrderControlsThenRun(tries) {
                 if (isCancelled()) return;
                 const inputs = visibleInputs();
                 const vol = (PLATFORM === 'MT5' ? findMt5TradeInputByLabel('Volume') : document.getElementById('volume'))
@@ -4044,19 +4377,8 @@ object WebTerminalScripts {
                   return;
                 }
                 if (tries === 0 || tries === 5) {
-                  if (PLATFORM === 'MT5') {
-                    const formStatus = openMT5TradeForm();
-                    if (formStatus === 'loading:trade_form_trigger_missing') {
-                      const newOrderBtn = findStrictNewOrderButton();
-                      if (newOrderBtn) singleClick(newOrderBtn);
-                      else dispatchF9TradeFormShortcut();
-                    }
-                  } else {
-                    const newOrderBtn = findStrictNewOrderButton();
-                    if (newOrderBtn) singleClick(newOrderBtn);
-                    else if (lastSelectedSymbolElement && isVisible(lastSelectedSymbolElement)) doubleClickMT4Row(lastSelectedSymbolElement);
-                    else dispatchF9TradeFormShortcut();
-                  }
+                  await openOrderFormForCurrentPlatform();
+                  if (isCancelled()) return;
                 }
                 if (tries < 12) {
                   schedule(function() { waitForOrderControlsThenRun(tries + 1); }, 300);
@@ -4069,14 +4391,14 @@ object WebTerminalScripts {
               async function startPlatformSymbolDiscovery() {
                 if (isCancelled()) return;
 
-                setPhase('SYMBOL_SEARCHING', 'Searching ' + SYMBOL + ' on ' + PLATFORM + '...');
+                setPhase('SYMBOL_SEARCHING', 'Checking previous terminal dialogs before ' + SYMBOL + '...');
 
-                // Ensure any stale order-entry or result modal from a previous signal is cleared first
+                // Ensure any stale order-entry or result/rejection modal from a previous signal is cleared first
                 // (never closing open broker positions or pending orders).
                 const dialogsCleared = await clearStaleDialogsBeforeNewSignal();
                 if (isCancelled()) return;
                 if (!dialogsCleared) {
-                  const errMsg = 'Previous order or result dialog could not be cleared cleanly before ' + SYMBOL;
+                  const errMsg = 'Previous order or result dialog could not be cleared cleanly before ' + SYMBOL + ' — terminal blocked';
                   emitTradeResult({
                     status: 'REJECTED',
                     platform: PLATFORM,
@@ -4286,8 +4608,16 @@ object WebTerminalScripts {
 
                 if (hasPwd || (hasAccountsPicker && !verifiedSession)) {
                   setPhase('AUTH', 'Logging in to Web Terminal...');
-                  if (window.BtechBridge && typeof window.BtechBridge.onTradeRequiresAuth === 'function') {
-                    window.BtechBridge.onTradeRequiresAuth();
+                  if (window.BtechBridge) {
+                    if (typeof window.BtechBridge.onTradeRequiresAuthForRun === 'function') {
+                      window.BtechBridge.onTradeRequiresAuthForRun(KOTLIN_RUN_ID);
+                    } else if (typeof window.BtechBridge.onTradeRequiresAuth === 'function') {
+                      window.BtechBridge.onTradeRequiresAuth();
+                    } else {
+                      const msg = 'Web terminal session is showing a login form. Open Web Terminal to log in first.';
+                      setPhase('ERROR', msg);
+                      log(msg, true, true);
+                    }
                   } else {
                     const msg = 'Web terminal session is showing a login form. Open Web Terminal to log in first.';
                     setPhase('ERROR', msg);
@@ -4303,8 +4633,16 @@ object WebTerminalScripts {
                     schedule(checkAuthAndStart, 400);
                     return;
                   }
-                  if (window.BtechBridge && typeof window.BtechBridge.onTradeRequiresAuth === 'function') {
-                    window.BtechBridge.onTradeRequiresAuth();
+                  if (window.BtechBridge) {
+                    if (typeof window.BtechBridge.onTradeRequiresAuthForRun === 'function') {
+                      window.BtechBridge.onTradeRequiresAuthForRun(KOTLIN_RUN_ID);
+                    } else if (typeof window.BtechBridge.onTradeRequiresAuth === 'function') {
+                      window.BtechBridge.onTradeRequiresAuth();
+                    } else {
+                      const msg = 'Account session not confirmed inside ' + PLATFORM + ' Web Terminal (' + (hasSpinner ? 'still connecting' : 'no live Balance or Market Watch quotes') + '). Open Web Terminal to verify.';
+                      setPhase('ERROR', msg);
+                      log(msg, true, true);
+                    }
                   } else {
                     const msg = 'Account session not confirmed inside ' + PLATFORM + ' Web Terminal (' + (hasSpinner ? 'still connecting' : 'no live Balance or Market Watch quotes') + '). Open Web Terminal to verify.';
                     setPhase('ERROR', msg);
@@ -4340,7 +4678,12 @@ object WebTerminalScripts {
                 findExactVisibleText: findExactVisibleText,
                 inspectMt5SearchResultAction: inspectMt5SearchResultAction,
                 findMT4SymbolsMenuItem: findMT4SymbolsMenuItem,
+                findMT4NewOrderMenuItem: findMT4NewOrderMenuItem,
                 openMT4ContextMenu: openMT4ContextMenu,
+                openMT4RowContextMenu: openMT4RowContextMenu,
+                openMT4NewOrderForRow: openMT4NewOrderForRow,
+                findMarketWatchPanel: findMarketWatchPanel,
+                openHiddenMarketWatch: openHiddenMarketWatch,
                 findMT4ShowAllMenuItem: findMT4ShowAllMenuItem,
                 clickMT4ShowAllMenuItem: clickMT4ShowAllMenuItem,
                 findMT4MarketWatchSymbolRow: findMT4MarketWatchSymbolRow,
@@ -4351,10 +4694,13 @@ object WebTerminalScripts {
                 mt5SetTradeField: mt5SetTradeField,
                 verifyMT5MinimumVolume: verifyMT5MinimumVolume,
                 dismissTradeResult: dismissTradeResult,
+                dismissBlockingDialogsAndConfirmClear: dismissBlockingDialogsAndConfirmClear,
+                hasOpenOrderOrResultDialog: hasOpenOrderOrResultDialog,
                 clearStaleDialogsBeforeNewSignal: clearStaleDialogsBeforeNewSignal,
                 isBrokerErrorText: isBrokerErrorText,
                 findOrderFormErrorBanner: findOrderFormErrorBanner,
                 inspectOrderExecutionType: inspectOrderExecutionType,
+                ensureExecutionTypeForSignal: ensureExecutionTypeForSignal,
                 verifySelectedInstrumentAndOrderForm: verifySelectedInstrumentAndOrderForm
               };
 

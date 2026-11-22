@@ -550,26 +550,35 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                     customTerminalUrl = url,
                 )
             }
-            webEngine.detachFromParent()
+            webEngine.setInspectMode(false)
             syncOverlayMetadata()
             showToast("Web Terminal session saved ($serverName)")
         }
     }
 
     fun openWebInspector(customUrl: String? = null) {
-        val url = customUrl?.takeIf { it.isNotBlank() }
-            ?: _uiState.value.customTerminalUrl.takeIf { it.isNotBlank() }
-            ?: _uiState.value.savedAccount?.terminalUrl?.takeIf { it.isNotBlank() }
-            ?: resolvedTerminalInfo()?.third?.takeIf { it.isNotBlank() }
-            ?: ""
-        if (url.isNotBlank()) {
-            webEngine.loadUrlForInspection(url)
+        val explicitUrl = customUrl?.trim()?.takeIf { it.isNotBlank() }
+        val curStatus = webEngine.status.value
+        val hasExistingPage = webEngine.hasWebView() &&
+            curStatus.currentUrl.isNotBlank() &&
+            !curStatus.currentUrl.equals("about:blank", ignoreCase = true) &&
+            curStatus.lastError == null
+
+        val targetUrl = explicitUrl ?: if (hasExistingPage) {
+            null
+        } else {
+            _uiState.value.customTerminalUrl.takeIf { it.isNotBlank() }
+                ?: _uiState.value.savedAccount?.terminalUrl?.takeIf { it.isNotBlank() }
+                ?: resolvedTerminalInfo()?.third?.takeIf { it.isNotBlank() }
         }
+
+        webEngine.setInspectMode(true)
+        webEngine.loadUrlForInspection(targetUrl, forceReload = false)
         _uiState.update { it.copy(showWebInspector = true) }
     }
 
     fun closeWebInspector() {
-        webEngine.detachFromParent()
+        webEngine.setInspectMode(false)
         _uiState.update { it.copy(showWebInspector = false) }
     }
 

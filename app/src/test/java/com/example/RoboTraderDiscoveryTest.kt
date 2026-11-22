@@ -270,6 +270,7 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("authLostTriggersBridge"))
         assertTrue(results.getBoolean("cancelAbortsMidDiscovery"))
         assertTrue(results.getBoolean("mt4MockOrderExecutedOnceAndConfirmed"))
+        assertTrue(results.getBoolean("zeroDoubleClicksUsedOk"))
         assertEquals(1, results.getInt("executedBuyClicks"))
         assertEquals(0, results.getInt("executedSellClicks"))
     }
@@ -787,9 +788,11 @@ class RoboTraderDiscoveryTest {
             d.body.appendChild(mw);
 
             ['mousedown', 'mouseup', 'contextmenu'].forEach(function(evName) {
-              row1.addEventListener(evName, function() { state.ctxEvents.push(evName); });
+              mw.addEventListener(evName, function() { state.ctxEvents.push(evName); });
             });
-            row1.addEventListener('contextmenu', function() {
+            mw.addEventListener('contextmenu', function() {
+              const oldMenus = d.querySelectorAll('.page-menu');
+              oldMenus.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
               const menu = d.createElement('div');
               menu.className = 'page-menu';
               const showAll = d.createElement('div');
@@ -797,65 +800,82 @@ class RoboTraderDiscoveryTest {
               showAll.textContent = 'Show All';
               showAll.addEventListener('mouseover', function() { state.showAllMouseOver = true; });
               showAll.addEventListener('click', function() {
+                if (menu.parentElement) menu.parentElement.removeChild(menu);
                 const row2 = d.createElement('tr');
                 const td2 = d.createElement('td');
                 td2.textContent = 'EURUSD';
                 row2.appendChild(td2);
                 row2.addEventListener('dblclick', function() {
-                  const ticket = d.createElement('div');
-                  ticket.setAttribute('role', 'dialog');
-                  const hdr = d.createElement('h3');
-                  hdr.setAttribute('data-symbol', 'EURUSD');
-                  hdr.textContent = 'EURUSD';
-                  ticket.appendChild(hdr);
+                  state.unexpectedDblClicks = (state.unexpectedDblClicks || 0) + 1;
+                });
+                row2.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  const prevMenus = d.querySelectorAll('.page-menu');
+                  prevMenus.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+                  const rowMenu = d.createElement('div');
+                  rowMenu.className = 'page-menu';
+                  const newOrderMi = d.createElement('div');
+                  newOrderMi.setAttribute('role', 'menuitem');
+                  newOrderMi.textContent = 'New Order';
+                  newOrderMi.addEventListener('click', function() {
+                    if (rowMenu.parentElement) rowMenu.parentElement.removeChild(rowMenu);
+                    const ticket = d.createElement('div');
+                    ticket.setAttribute('role', 'dialog');
+                    const hdr = d.createElement('h3');
+                    hdr.setAttribute('data-symbol', 'EURUSD');
+                    hdr.textContent = 'EURUSD';
+                    ticket.appendChild(hdr);
 
-                  const vIn = d.createElement('input');
-                  vIn.id = 'volume';
-                  const slIn = d.createElement('input');
-                  slIn.id = 'sl';
-                  slIn.addEventListener('change', function() {
-                    if (slIn.value === '0') state.slHadZeroBeforeFinal = true;
-                  });
-                  const tpIn = d.createElement('input');
-                  tpIn.id = 'tp';
-                  const cmtIn = d.createElement('input');
-                  cmtIn.id = 'comment';
-                  ticket.appendChild(vIn);
-                  ticket.appendChild(slIn);
-                  ticket.appendChild(tpIn);
-                  ticket.appendChild(cmtIn);
+                    const vIn = d.createElement('input');
+                    vIn.id = 'volume';
+                    const slIn = d.createElement('input');
+                    slIn.id = 'sl';
+                    slIn.addEventListener('change', function() {
+                      if (slIn.value === '0') state.slHadZeroBeforeFinal = true;
+                    });
+                    const tpIn = d.createElement('input');
+                    tpIn.id = 'tp';
+                    const cmtIn = d.createElement('input');
+                    cmtIn.id = 'comment';
+                    ticket.appendChild(vIn);
+                    ticket.appendChild(slIn);
+                    ticket.appendChild(tpIn);
+                    ticket.appendChild(cmtIn);
 
-                  const sellB = d.createElement('button');
-                  sellB.textContent = 'Sell by Market';
-                  sellB.addEventListener('click', function() {
-                    state.sellClicks++;
-                    if (opts.mode === 'bare_ok_timeout') {
-                      const md = d.createElement('div');
-                      md.setAttribute('role', 'dialog');
+                    const sellB = d.createElement('button');
+                    sellB.textContent = 'Sell by Market';
+                    sellB.addEventListener('click', function() {
+                      state.sellClicks++;
+                      if (opts.mode === 'bare_ok_timeout') {
+                        const md = d.createElement('div');
+                        md.setAttribute('role', 'dialog');
+                        const ok = d.createElement('button');
+                        ok.textContent = 'OK';
+                        md.appendChild(ok);
+                        d.body.appendChild(md);
+                      }
+                    });
+                    const buyB = d.createElement('button');
+                    buyB.textContent = 'Buy by Market';
+                    buyB.addEventListener('click', function() {
+                      state.buyClicks++;
+                      const errD = d.createElement('div');
+                      errD.setAttribute('role', 'dialog');
+                      const msg = d.createElement('div');
+                      msg.className = 'error';
+                      msg.textContent = 'Not enough money';
                       const ok = d.createElement('button');
                       ok.textContent = 'OK';
-                      md.appendChild(ok);
-                      d.body.appendChild(md);
-                    }
+                      errD.appendChild(msg);
+                      errD.appendChild(ok);
+                      d.body.appendChild(errD);
+                    });
+                    ticket.appendChild(sellB);
+                    ticket.appendChild(buyB);
+                    d.body.appendChild(ticket);
                   });
-                  const buyB = d.createElement('button');
-                  buyB.textContent = 'Buy by Market';
-                  buyB.addEventListener('click', function() {
-                    state.buyClicks++;
-                    const errD = d.createElement('div');
-                    errD.setAttribute('role', 'dialog');
-                    const msg = d.createElement('div');
-                    msg.className = 'error';
-                    msg.textContent = 'Not enough money';
-                    const ok = d.createElement('button');
-                    ok.textContent = 'OK';
-                    errD.appendChild(msg);
-                    errD.appendChild(ok);
-                    d.body.appendChild(errD);
-                  });
-                  ticket.appendChild(sellB);
-                  ticket.appendChild(buyB);
-                  d.body.appendChild(ticket);
+                  rowMenu.appendChild(newOrderMi);
+                  d.body.appendChild(rowMenu);
                 });
                 tb.appendChild(row2);
               });
@@ -887,6 +907,7 @@ class RoboTraderDiscoveryTest {
           const mt4SlZeroResetOk = st4.slHadZeroBeforeFinal === true;
           const mt4BareOkNotCountedAndUnknownOk =
             st4.sellClicks === 1 &&
+            !st4.unexpectedDblClicks &&
             !st4.openPositionCloseClicked &&
             st4.results.length === 1 &&
             st4.results[0].status === 'UNKNOWN' &&
@@ -1381,7 +1402,7 @@ class RoboTraderDiscoveryTest {
           // 4. MT4 Symbols dialog workflow WITHOUT literal "Show All" command
           global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
           const d4 = createDomDocument();
-          const mt4SymState = { groupExpanded: false, showClicked: false, dblSym: '' };
+          const mt4SymState = { groupExpanded: false, showClicked: false, rowSelected: '' };
           const mwPanel = d4.createElement('div');
           mwPanel.className = 'market-watch-panel';
           const mwHdr = d4.createElement('div');
@@ -1438,7 +1459,7 @@ class RoboTraderDiscoveryTest {
                     const c = d4.createElement('td');
                     c.textContent = 'XAUUSD.m 2650.00 2650.30';
                     newRow.appendChild(c);
-                    newRow.addEventListener('dblclick', function() { mt4SymState.dblSym = 'XAUUSD.m'; });
+                    newRow.addEventListener('click', function() { mt4SymState.rowSelected = 'XAUUSD.m'; });
                     mwBody.appendChild(newRow);
                   });
                   const closeB = d4.createElement('button');
@@ -1466,7 +1487,7 @@ class RoboTraderDiscoveryTest {
             mt4DlgRes.actualSymbol === 'XAUUSD.m' &&
             mt4SymState.groupExpanded &&
             mt4SymState.showClicked &&
-            mt4SymState.dblSym === 'XAUUSD.m';
+            mt4SymState.rowSelected === 'XAUUSD.m';
 
           // 5. Screenshot 4 Order Form: disabled button + "Trading for this account is disabled on the server"
           global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
@@ -1689,10 +1710,10 @@ class RoboTraderDiscoveryTest {
             vSt.results[0].status === 'ACCEPTED' &&
             vSt.results[0].actualSymbol === 'BTCUSD.s';
 
-          // 7. MT4 Symbols dialog empty/missing entry falls back cleanly to Show All -> finds XAUUSD.m!
+          // 7. When BOTH Symbols... and Show All are present, Show All is prioritised directly ahead of Symbols... -> finds XAUUSD.m!
           global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
           const d4Fb = createDomDocument();
-          const fb4St = { showAllFallbackUsed: false, dblSym: '' };
+          const fb4St = { showAllUsed: false, rowSelected: '' };
           const mw4 = d4Fb.createElement('div');
           mw4.className = 'market-watch-panel';
           const mw4Lbl = d4Fb.createElement('div');
@@ -1733,12 +1754,12 @@ class RoboTraderDiscoveryTest {
             allMi.setAttribute('role', 'menuitem');
             allMi.textContent = 'Show All';
             allMi.addEventListener('click', function() {
-              fb4St.showAllFallbackUsed = true;
+              fb4St.showAllUsed = true;
               const nr = d4Fb.createElement('tr');
               const nc = d4Fb.createElement('td');
               nc.textContent = 'XAUUSD.m 2650.00 2650.30';
               nr.appendChild(nc);
-              nr.addEventListener('dblclick', function() { fb4St.dblSym = 'XAUUSD.m'; });
+              nr.addEventListener('click', function() { fb4St.rowSelected = 'XAUUSD.m'; });
               mw4B.appendChild(nr);
             });
             m.appendChild(symMi);
@@ -1752,8 +1773,8 @@ class RoboTraderDiscoveryTest {
           const mt4SymbolsToShowAllFallbackOk =
             fb4Res.success &&
             fb4Res.actualSymbol === 'XAUUSD.m' &&
-            fb4St.showAllFallbackUsed &&
-            fb4St.dblSym === 'XAUUSD.m';
+            fb4St.showAllUsed &&
+            fb4St.rowSelected === 'XAUUSD.m';
 
           // 8. Strict exact broker symbol enforcement:
           //    Requesting "XAUUSD" on a JustMarkets Pro terminal that ONLY has "XAUUSD.s" MUST reject with error:Symbol XAUUSD not found!
@@ -1874,6 +1895,1129 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("authenticVerifyPreventsNavFalsePositiveOk"))
     }
 
+    @Test
+    fun `Part 13 Desktop Viewport JS enforcement overrides mobile meta tags, resists post-load mutations, persists, and reports layout diagnostics`() {
+        val enforceDefaultJs = WebTerminalScripts.buildDesktopViewportEnforcementScript(
+            targetWidthPx = 1366,
+            enabled = true,
+            isFallback = false,
+        )
+        val enforceCustomJs = WebTerminalScripts.buildDesktopViewportEnforcementScript(
+            targetWidthPx = 1440,
+            enabled = true,
+            isFallback = false,
+        )
+        val diagSupportedJs = WebTerminalScripts.buildDesktopViewportDiagnosticsScript(
+            targetWidthPx = 1366,
+            enforcementActive = true,
+            documentStartSupported = true,
+            fallbackApplied = false,
+        )
+        val diagFallbackJs = WebTerminalScripts.buildDesktopViewportDiagnosticsScript(
+            targetWidthPx = 1366,
+            enforcementActive = true,
+            documentStartSupported = false,
+            fallbackApplied = true,
+        )
+
+        val script = """
+        (async function() {
+          // Provide lightweight HTMLMetaElement & MutationObserver mocks to exercise mutation interception
+          const activeObservers = [];
+          function notifyMetaMutation(type, target, addedNodes, removedNodes) {
+            const mut = {
+              type: type,
+              target: target,
+              addedNodes: addedNodes || [],
+              removedNodes: removedNodes || []
+            };
+            activeObservers.forEach(function(obs) {
+              try { obs.cb([mut]); } catch (_) {}
+            });
+          }
+
+          class MockMutationObserver {
+            constructor(cb) { this.cb = cb; this.connected = false; }
+            observe() { this.connected = true; if (activeObservers.indexOf(this) < 0) activeObservers.push(this); }
+            disconnect() {
+              this.connected = false;
+              const idx = activeObservers.indexOf(this);
+              if (idx >= 0) activeObservers.splice(idx, 1);
+            }
+          }
+          global.MutationObserver = MockMutationObserver;
+
+          class MockHTMLMetaElement extends ShimElement {
+            constructor(ownerDocument) { super('META', ownerDocument); }
+            get content() { return this.getAttribute('content') || ''; }
+            set content(v) {
+              this.setAttribute('content', String(v || ''));
+              notifyMetaMutation('attributes', this);
+            }
+          }
+          MockHTMLMetaElement.prototype.setAttribute = function(k, v) {
+            ShimElement.prototype.setAttribute.call(this, k, v);
+            if (String(k || '').toLowerCase() === 'content') {
+              notifyMetaMutation('attributes', this);
+            }
+          };
+          global.HTMLMetaElement = MockHTMLMetaElement;
+
+          const doc = createDomDocument();
+          const origCreate = doc.createElement;
+          doc.createElement = function(tag) {
+            if (String(tag || '').toUpperCase() === 'META') {
+              return new MockHTMLMetaElement(doc);
+            }
+            return origCreate(tag);
+          };
+          const origAppendHead = doc.head.appendChild.bind(doc.head);
+          doc.head.appendChild = function(child) {
+            const res = origAppendHead(child);
+            notifyMetaMutation('childList', doc.head, [child], []);
+            return res;
+          };
+
+          // 1. Broker initially supplies mobile meta tag width=device-width
+          const initialMeta = doc.createElement('meta');
+          initialMeta.setAttribute('name', 'viewport');
+          initialMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0');
+          doc.head.appendChild(initialMeta);
+          installDoc(doc);
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+          global.navigator = { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0.0.0 Safari/537.36' };
+          global.screen = { width: 412, height: 915 };
+          global.innerWidth = 1366;
+          global.innerHeight = 768;
+          doc.documentElement.clientWidth = 1366;
+          global.visualViewport = { width: 1366 };
+
+          eval(${JSONObject.quote(enforceDefaultJs)});
+          const initialOverrideOk =
+            initialMeta.getAttribute('content') === 'width=1366, user-scalable=yes' &&
+            window.__btechViewportEnforced === true &&
+            window.__btechViewportObserver &&
+            window.__btechViewportObserver.connected === true;
+
+          // 2. Broker framework script attempts post-load mutation back to mobile viewport via property setter + setAttribute
+          initialMeta.content = 'width=device-width, initial-scale=1';
+          const propMutationBlockedOk = initialMeta.getAttribute('content') === 'width=1366, user-scalable=yes';
+
+          initialMeta.setAttribute('content', 'width=device-width, maximum-scale=1.0');
+          const setAttrMutationBlockedOk = initialMeta.getAttribute('content') === 'width=1366, user-scalable=yes';
+
+          // 3. Broker appends a brand-new competing <meta name="viewport"> tag dynamically
+          const injectedMeta = doc.createElement('meta');
+          injectedMeta.setAttribute('name', 'viewport');
+          injectedMeta.setAttribute('content', 'width=device-width, initial-scale=1');
+          doc.head.appendChild(injectedMeta);
+          const dynamicInjectedMetaOverriddenOk = injectedMeta.getAttribute('content') === 'width=1366, user-scalable=yes';
+
+          // 4. Diagnostics report actual CSS layout viewport metrics (independent of mobile screen.width=412)
+          const diag1 = JSON.parse(eval(${JSONObject.quote(diagSupportedJs)}));
+          const diagnosticsDesktopOk =
+            diag1.innerWidth === 1366 &&
+            diag1.clientWidth === 1366 &&
+            diag1.visualViewportWidth === 1366 &&
+            diag1.innerHeight === 768 &&
+            diag1.metaViewport.indexOf('width=1366, user-scalable=yes') >= 0 &&
+            diag1.userAgent.indexOf('X11; Linux x86_64') >= 0 &&
+            diag1.url === 'https://live.justmarkets.com/terminal' &&
+            diag1.viewportEnforced === true &&
+            diag1.layoutIsDesktopWidth === true &&
+            diag1.documentStartSupported === true &&
+            diag1.fallbackApplied === false;
+
+          // 5. Re-running enforcement after simulated reload / auth transition preserves desktop viewport
+          eval(${JSONObject.quote(enforceCustomJs)});
+          const postReloadCustomWidthOk =
+            initialMeta.getAttribute('content') === 'width=1440, user-scalable=yes' &&
+            window.__btechViewportEnforced === true;
+
+          // 6. Fallback limitation flag when DOCUMENT_START_SCRIPT is unavailable
+          window.__btechViewportDocStartActive = false;
+          const diagFb = JSON.parse(eval(${JSONObject.quote(diagFallbackJs)}));
+          const fallbackLimitationReportedOk =
+            diagFb.documentStartSupported === false &&
+            diagFb.fallbackApplied === true;
+
+          console.log(JSON.stringify({
+            ok: true,
+            initialOverrideOk: initialOverrideOk,
+            propMutationBlockedOk: propMutationBlockedOk,
+            setAttrMutationBlockedOk: setAttrMutationBlockedOk,
+            dynamicInjectedMetaOverriddenOk: dynamicInjectedMetaOverriddenOk,
+            diagnosticsDesktopOk: diagnosticsDesktopOk,
+            postReloadCustomWidthOk: postReloadCustomWidthOk,
+            fallbackLimitationReportedOk: fallbackLimitationReportedOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Part 13 Desktop Viewport JS suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("initialOverrideOk"))
+        assertTrue(results.getBoolean("propMutationBlockedOk"))
+        assertTrue(results.getBoolean("setAttrMutationBlockedOk"))
+        assertTrue(results.getBoolean("dynamicInjectedMetaOverriddenOk"))
+        assertTrue(results.getBoolean("diagnosticsDesktopOk"))
+        assertTrue(results.getBoolean("postReloadCustomWidthOk"))
+        assertTrue(results.getBoolean("fallbackLimitationReportedOk"))
+    }
+
+    @Test
+    fun `Part 13 MT5 direct search, labeled inputs, dropdown Market Execution switch, chart-control filter, non-OK dismissal, serial execution, and UNKNOWN safety`() {
+        val discMetalsJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT5", "XAUUSD", "JustMarkets", "JustMarkets-Live", "{}", 10)
+        val discLabeledJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT5", "BTCUSD.s", "JustMarkets", "JustMarkets-Live", "{}", 10)
+        val discMissingInputJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT5", "EURUSD", "JustMarkets", "JustMarkets-Live", "{}", 10)
+        val discAliasJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT5", "GOLD", "Exness", "Exness-MT5", """{"GOLD":"XAUUSD.ecn"}""", 10)
+
+        val tradeBuySingleJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.02", "2640", "2670", "BTECH-BUY", 1, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s1", 25, "", 101L)
+        val tradeSellSingleJs = WebTerminalScripts.buildTradeScript("XAUUSD", "SELL", "0.05", "2680", "2630", "BTECH-SELL", 1, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s2", 25, "", 102L)
+        val tradeRejectDoneJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-REJ", 2, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s3", 25, "", 103L)
+        val tradePendingBlankPriceJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-PEND", 1, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s4", 25, "", 104L)
+        val tradeMulti3Js = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "2640", "2680", "BTECH-M3", 3, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s5", 25, "", 105L)
+        val tradeUnknownJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-UNK", 2, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "s6", 6, "", 106L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+
+          // 1. Direct search across different groups WITHOUT clicking group tabs (Forex, Metals, Crypto, Indices)
+          const dGrp = createDomDocument();
+          const grpSt = { groupTabClicks: 0, chartSymbol: 'EURUSD' };
+          const ws1 = dGrp.createElement('div');
+          ws1.textContent = 'Balance: 2,500.00 USD Equity: 2,500.00 USD Quotes Chart Trade';
+          dGrp.body.appendChild(ws1);
+          ['Forex', 'Metals', 'Crypto', 'Indices'].forEach(function(g) {
+            const tb = dGrp.createElement('button');
+            tb.textContent = g;
+            tb.addEventListener('click', function() { grpSt.groupTabClicks++; });
+            dGrp.body.appendChild(tb);
+          });
+          const chHdr = dGrp.createElement('div');
+          chHdr.className = 'chart-header';
+          chHdr.textContent = 'EURUSD, H1';
+          dGrp.body.appendChild(chHdr);
+          const sIn1 = dGrp.createElement('input');
+          sIn1.setAttribute('placeholder', 'Search symbol');
+          dGrp.body.appendChild(sIn1);
+          const list1 = dGrp.createElement('div');
+          dGrp.body.appendChild(list1);
+          const allItems1 = [
+            { sym: 'XAUUSD', grp: 'Metals' },
+            { sym: 'BTCUSD.s', grp: 'Crypto' },
+            { sym: 'US500', grp: 'Indices' },
+            { sym: 'EURUSD', grp: 'Forex' }
+          ];
+          sIn1.addEventListener('input', function() {
+            list1.textContent = '';
+            const q = String(sIn1.value || '').toUpperCase();
+            allItems1.filter(function(it) { return !q || it.sym.toUpperCase().indexOf(q) >= 0; }).forEach(function(it) {
+              const r = dGrp.createElement('div');
+              r.setAttribute('role', 'row');
+              r.setAttribute('data-symbol', it.sym);
+              r.textContent = it.sym + ' [' + it.grp + ']';
+              r.addEventListener('click', function() {
+                grpSt.chartSymbol = it.sym;
+                chHdr.textContent = it.sym + ', M15';
+              });
+              list1.appendChild(r);
+            });
+          });
+          installDoc(dGrp);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval(${JSONObject.quote(discMetalsJs)});
+          const rGrp = await window.__btechLastDiscoveryPromise;
+          const directSearchNoGroupClicksOk = rGrp.success && rGrp.actualSymbol === 'XAUUSD' && grpSt.groupTabClicks === 0 && grpSt.chartSymbol === 'XAUUSD';
+
+          // 2. Search input identified ONLY via <label for="..."> (no placeholder/aria-label)
+          const dLbl = createDomDocument();
+          const ws2 = dLbl.createElement('div');
+          ws2.textContent = 'Balance: 1,000.00 USD Equity: 1,000.00 USD Quotes Chart Trade';
+          dLbl.body.appendChild(ws2);
+          const lblEl = dLbl.createElement('label');
+          lblEl.setAttribute('for', 'broker_sym_box');
+          lblEl.textContent = 'Search symbol';
+          const lblInput = dLbl.createElement('input');
+          lblInput.id = 'broker_sym_box';
+          dLbl.body.appendChild(lblEl);
+          dLbl.body.appendChild(lblInput);
+          const lblList = dLbl.createElement('div');
+          dLbl.body.appendChild(lblList);
+          lblInput.addEventListener('input', function() {
+            lblList.textContent = '';
+            if (String(lblInput.value || '').toUpperCase().indexOf('BTC') >= 0) {
+              const rr = dLbl.createElement('div');
+              rr.setAttribute('role', 'row');
+              rr.setAttribute('data-symbol', 'BTCUSD.s');
+              rr.textContent = 'BTCUSD.s';
+              lblList.appendChild(rr);
+            }
+          });
+          installDoc(dLbl);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval(${JSONObject.quote(discLabeledJs)});
+          const rLbl = await window.__btechLastDiscoveryPromise;
+          const labeledSearchInputFoundOk = rLbl.success && rLbl.actualSymbol === 'BTCUSD.s';
+
+          // 3. Missing search field returns diagnostic naming what controls ARE visible (not false "symbol not found")
+          const dNoSearch = createDomDocument();
+          const ws3 = dNoSearch.createElement('div');
+          ws3.textContent = 'Balance: 1,000.00 USD Equity: 1,000.00 USD Quotes Chart Trade';
+          dNoSearch.body.appendChild(ws3);
+          const dummyBtn = dNoSearch.createElement('button');
+          dummyBtn.textContent = 'Account History';
+          dNoSearch.body.appendChild(dummyBtn);
+          installDoc(dNoSearch);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval(${JSONObject.quote(discMissingInputJs)});
+          const rNoSearch = await window.__btechLastDiscoveryPromise;
+          const missingSearchDiagnosticOk =
+            !rNoSearch.success &&
+            String(rNoSearch.error).indexOf('MT5 symbol search field not found') >= 0 &&
+            String(rNoSearch.error).indexOf('Account History') >= 0;
+
+          // 4. Verified alias lookup (GOLD -> XAUUSD.ecn)
+          const dAlias = createDomDocument();
+          const ws4 = dAlias.createElement('div');
+          ws4.textContent = 'Balance: 1,000.00 USD Equity: 1,000.00 USD';
+          dAlias.body.appendChild(ws4);
+          const aliasIn = dAlias.createElement('input');
+          aliasIn.setAttribute('placeholder', 'Search symbol');
+          dAlias.body.appendChild(aliasIn);
+          const aliasList = dAlias.createElement('div');
+          dAlias.body.appendChild(aliasList);
+          aliasIn.addEventListener('input', function() {
+            aliasList.textContent = '';
+            const rowA = dAlias.createElement('div');
+            rowA.setAttribute('role', 'row');
+            rowA.setAttribute('data-symbol', 'XAUUSD.ecn');
+            rowA.textContent = 'XAUUSD.ecn';
+            aliasList.appendChild(rowA);
+          });
+          installDoc(dAlias);
+          window.BtechBridge = { onSymbolDiscovered: function() {} };
+          eval(${JSONObject.quote(discAliasJs)});
+          const rAlias = await window.__btechLastDiscoveryPromise;
+          const verifiedAliasOk = rAlias.success && rAlias.actualSymbol === 'XAUUSD.ecn' && rAlias.matchType === 'VERIFIED_ALIAS';
+
+          // Helper for rich MT5 trade execution scenarios
+          function setupRichMt5TradeDom(cfg) {
+            cfg = cfg || {};
+            const td = createDomDocument();
+            const st = {
+              chartToolClicks: 0,
+              dropdownValue: cfg.initialOrderType || 'Buy Limit',
+              buyClicks: 0,
+              sellClicks: 0,
+              doneDismissed: false,
+              okDismissed: false,
+              openForms: 0,
+              ticketRemainedOpenAfterError: false,
+              submittedDirections: [],
+              filledLot: '',
+              filledSl: '',
+              filledTp: '',
+              filledComment: '',
+              logs: [],
+              results: [],
+              phases: []
+            };
+            const hdr = td.createElement('div');
+            hdr.textContent = 'Balance: 10,000.00 USD Equity: 10,000.00 USD Quotes Chart Trade';
+            td.body.appendChild(hdr);
+
+            const chHdrT = td.createElement('div');
+            chHdrT.className = 'chart-header';
+            chHdrT.textContent = 'EURUSD, H1';
+            td.body.appendChild(chHdrT);
+
+            // Chart drawing & settings toolbar controls BEFORE New Order -> must NEVER be clicked
+            ['Trend Line', 'Chart Settings', 'Crosshair'].forEach(function(lbl) {
+              const toolBtn = td.createElement('button');
+              toolBtn.setAttribute('title', lbl);
+              toolBtn.textContent = lbl;
+              toolBtn.addEventListener('click', function() { st.chartToolClicks++; });
+              td.body.appendChild(toolBtn);
+            });
+
+            const sIn = td.createElement('input');
+            sIn.setAttribute('placeholder', 'Search symbol');
+            td.body.appendChild(sIn);
+            const rRow = td.createElement('div');
+            rRow.setAttribute('role', 'row');
+            rRow.setAttribute('data-symbol', 'XAUUSD');
+            rRow.textContent = 'XAUUSD';
+            td.body.appendChild(rRow);
+
+            const newOrderBtn = td.createElement('button');
+            newOrderBtn.setAttribute('title', 'New Order (F9)');
+            newOrderBtn.textContent = 'New Order';
+            td.body.appendChild(newOrderBtn);
+
+            rRow.addEventListener('click', function() {
+              chHdrT.textContent = 'XAUUSD, H1';
+            });
+
+            let activeForm = null;
+            newOrderBtn.addEventListener('click', function() {
+              if (activeForm && activeForm.parentElement) activeForm.parentElement.removeChild(activeForm);
+              activeForm = td.createElement('div');
+              activeForm.className = 'trade-form';
+              activeForm.setAttribute('role', 'dialog');
+              st.openForms++;
+
+              const closeTicket = td.createElement('button');
+              closeTicket.textContent = '×';
+              closeTicket.addEventListener('click', function() {
+                if (activeForm && activeForm.parentElement) activeForm.parentElement.removeChild(activeForm);
+              });
+              activeForm.appendChild(closeTicket);
+
+              const symTitle = td.createElement('div');
+              symTitle.setAttribute('data-symbol', 'XAUUSD');
+              symTitle.textContent = 'XAUUSD';
+              activeForm.appendChild(symTitle);
+
+              // Execution type dropdown
+              const sel = td.createElement('select');
+              const types = cfg.onlyPendingOption ? ['Buy Limit', 'Sell Limit'] : ['Buy Limit', 'Market Execution', 'Sell Limit'];
+              types.forEach(function(tp) {
+                const opt = td.createElement('option');
+                opt.value = tp;
+                opt.textContent = tp;
+                sel.appendChild(opt);
+              });
+              sel.value = st.dropdownValue;
+              sel.addEventListener('change', function() {
+                st.dropdownValue = sel.value;
+              });
+              activeForm.appendChild(sel);
+
+              if (cfg.onlyPendingOption) {
+                const pWrap = td.createElement('div');
+                pWrap.className = 'trade-input';
+                const pLbl = td.createElement('span');
+                pLbl.className = 'label';
+                pLbl.textContent = 'Price';
+                const pIn = td.createElement('input');
+                pWrap.appendChild(pLbl);
+                pWrap.appendChild(pIn);
+                activeForm.appendChild(pWrap);
+              }
+
+              function addFld(name, onSet) {
+                const w = td.createElement('div');
+                w.className = 'trade-input';
+                const l = td.createElement('span');
+                l.className = 'label';
+                l.textContent = name;
+                const i = td.createElement('input');
+                i.addEventListener('input', function() { onSet(i.value); });
+                w.appendChild(l);
+                w.appendChild(i);
+                activeForm.appendChild(w);
+              }
+              addFld('Volume', function(v) { st.filledLot = v; });
+              addFld('Stop Loss', function(v) { st.filledSl = v; });
+              addFld('Take Profit', function(v) { st.filledTp = v; });
+
+              const cw = td.createElement('div');
+              cw.className = 'comment';
+              const cl = td.createElement('span');
+              cl.className = 'label';
+              cl.textContent = 'Comment';
+              const ci = td.createElement('input');
+              ci.addEventListener('input', function() { st.filledComment = ci.value; });
+              cw.appendChild(cl);
+              cw.appendChild(ci);
+              activeForm.appendChild(cw);
+
+              const sellB = td.createElement('button');
+              sellB.textContent = 'Sell by Market';
+              const buyB = td.createElement('button');
+              buyB.textContent = 'Buy by Market';
+
+              function handleSubmit(isBuy) {
+                if (isBuy) { st.buyClicks++; st.submittedDirections.push('BUY'); }
+                else { st.sellClicks++; st.submittedDirections.push('SELL'); }
+                if (cfg.outcome === 'reject_done') {
+                  // Simulate broker rejection popup with ONLY "Done" button (no OK), plus underlying order ticket stays open!
+                  const rejDlg = td.createElement('div');
+                  rejDlg.setAttribute('role', 'alertdialog');
+                  rejDlg.className = 'trade-result';
+                  const msg = td.createElement('div');
+                  msg.className = 'error';
+                  msg.textContent = 'Not enough money';
+                  const doneB = td.createElement('button');
+                  doneB.textContent = 'Done';
+                  doneB.addEventListener('click', function() {
+                    st.doneDismissed = true;
+                    if (rejDlg.parentElement) rejDlg.parentElement.removeChild(rejDlg);
+                  });
+                  rejDlg.appendChild(msg);
+                  rejDlg.appendChild(doneB);
+                  td.body.appendChild(rejDlg);
+                } else if (cfg.outcome === 'unknown') {
+                  // Do not display any receipt or position -> triggers UNKNOWN
+                } else {
+                  const posRow = td.createElement('tr');
+                  posRow.textContent = '#7700' + (st.buyClicks + st.sellClicks) + ' ' + (isBuy ? 'buy' : 'sell') + ' ' + st.filledLot + ' XAUUSD at 2652.00';
+                  td.body.appendChild(posRow);
+                  if (cfg.useOkDialog) {
+                    const okDlg = td.createElement('div');
+                    okDlg.setAttribute('role', 'dialog');
+                    okDlg.className = 'trade-result';
+                    const txt = td.createElement('div');
+                    txt.className = 'status';
+                    txt.textContent = 'Done: Order #' + (st.buyClicks + st.sellClicks) + ' executed';
+                    const okB = td.createElement('button');
+                    okB.textContent = 'OK';
+                    okB.addEventListener('click', function() {
+                      st.okDismissed = true;
+                      if (okDlg.parentElement) okDlg.parentElement.removeChild(okDlg);
+                      if (activeForm && activeForm.parentElement) activeForm.parentElement.removeChild(activeForm);
+                    });
+                    okDlg.appendChild(txt);
+                    okDlg.appendChild(okB);
+                    td.body.appendChild(okDlg);
+                  } else if (activeForm && activeForm.parentElement) {
+                    activeForm.parentElement.removeChild(activeForm);
+                  }
+                }
+              }
+
+              buyB.addEventListener('click', function() { handleSubmit(true); });
+              sellB.addEventListener('click', function() { handleSubmit(false); });
+              activeForm.appendChild(sellB);
+              activeForm.appendChild(buyB);
+              td.body.appendChild(activeForm);
+            });
+
+            installDoc(td);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function(k, d) { st.phases.push({ k: k, d: d }); },
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return { doc: td, st: st };
+          }
+
+          // 5. Market Buy executes once, ignores Chart Tools, actively switches dropdown from Buy Limit -> Market Execution
+          let runCtx = setupRichMt5TradeDom({ initialOrderType: 'Buy Limit', useOkDialog: true });
+          eval(${JSONObject.quote(tradeBuySingleJs)});
+          for (let w = 0; w < 100 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const buyDropdownSwitchedOnceOk =
+            runCtx.st.chartToolClicks === 0 &&
+            runCtx.st.dropdownValue === 'Market Execution' &&
+            runCtx.st.filledLot === '0.02' &&
+            runCtx.st.filledSl === '2640' &&
+            runCtx.st.filledTp === '2670' &&
+            runCtx.st.filledComment === 'BTECH-BUY' &&
+            runCtx.st.buyClicks === 1 &&
+            runCtx.st.sellClicks === 0 &&
+            runCtx.st.okDismissed === true &&
+            runCtx.doc.querySelectorAll('.trade-result, .trade-form').length === 0 &&
+            runCtx.st.results.length === 1 && runCtx.st.results[0].status === 'ACCEPTED';
+
+          // 6. Market Sell executes once
+          runCtx = setupRichMt5TradeDom({ initialOrderType: 'Market Execution', useOkDialog: true });
+          eval(${JSONObject.quote(tradeSellSingleJs)});
+          for (let w = 0; w < 100 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const sellSingleOk =
+            runCtx.st.buyClicks === 0 &&
+            runCtx.st.sellClicks === 1 &&
+            runCtx.st.okDismissed === true &&
+            runCtx.st.results.length === 1 && runCtx.st.results[0].status === 'ACCEPTED';
+
+          // 7. Pending mode with blank required Price input rejects without inventing entry price
+          runCtx = setupRichMt5TradeDom({ onlyPendingOption: true, initialOrderType: 'Buy Limit' });
+          eval(${JSONObject.quote(tradePendingBlankPriceJs)});
+          for (let w = 0; w < 100 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const blankPendingPriceRejectedOk =
+            runCtx.st.buyClicks === 0 &&
+            runCtx.st.results.length === 1 &&
+            runCtx.st.results[0].status === 'REJECTED' &&
+            runCtx.st.results[0].rawMessage.indexOf('entry price') >= 0;
+
+          // 8. Broker rejection -> Done button (non-OK) dismissed + open ticket closed cleanly + stops 2nd trade
+          runCtx = setupRichMt5TradeDom({ initialOrderType: 'Market Execution', outcome: 'reject_done' });
+          eval(${JSONObject.quote(tradeRejectDoneJs)});
+          for (let w = 0; w < 120 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const rejectionDoneAndTicketClosedOk =
+            runCtx.st.buyClicks === 1 &&
+            runCtx.st.doneDismissed === true &&
+            runCtx.doc.querySelectorAll('.trade-result, .trade-form').length === 0 &&
+            runCtx.st.results.length === 1 &&
+            runCtx.st.results[0].status === 'REJECTED' &&
+            runCtx.st.results[0].rawMessage.indexOf('Not enough money') >= 0;
+
+          // 9. Serial 3-trade execution opens fresh form per trade and clears OK dialog between each trade
+          runCtx = setupRichMt5TradeDom({ initialOrderType: 'Market Execution', useOkDialog: true });
+          eval(${JSONObject.quote(tradeMulti3Js)});
+          for (let w = 0; w < 260 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const serial3TradesConfirmedOk =
+            runCtx.st.buyClicks === 3 &&
+            runCtx.st.openForms === 3 &&
+            runCtx.doc.querySelectorAll('.trade-result, .trade-form').length === 0 &&
+            runCtx.st.results.length === 1 &&
+            runCtx.st.results[0].status === 'ACCEPTED' &&
+            runCtx.st.results[0].confirmedCount === 3;
+
+          // 10. UNKNOWN broker outcome never duplicates submission and closes stale form cleanly
+          runCtx = setupRichMt5TradeDom({ initialOrderType: 'Market Execution', outcome: 'unknown' });
+          eval(${JSONObject.quote(tradeUnknownJs)});
+          for (let w = 0; w < 180 && !runCtx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const unknownNoDuplicateSubmitOk =
+            runCtx.st.buyClicks === 1 &&
+            runCtx.doc.querySelectorAll('.trade-form').length === 0 &&
+            runCtx.st.results.length === 1 &&
+            runCtx.st.results[0].status === 'UNKNOWN';
+
+          console.log(JSON.stringify({
+            ok: true,
+            directSearchNoGroupClicksOk: directSearchNoGroupClicksOk,
+            labeledSearchInputFoundOk: labeledSearchInputFoundOk,
+            missingSearchDiagnosticOk: missingSearchDiagnosticOk,
+            verifiedAliasOk: verifiedAliasOk,
+            buyDropdownSwitchedOnceOk: buyDropdownSwitchedOnceOk,
+            sellSingleOk: sellSingleOk,
+            blankPendingPriceRejectedOk: blankPendingPriceRejectedOk,
+            rejectionDoneAndTicketClosedOk: rejectionDoneAndTicketClosedOk,
+            serial3TradesConfirmedOk: serial3TradesConfirmedOk,
+            unknownNoDuplicateSubmitOk: unknownNoDuplicateSubmitOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Part 13 MT5 suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("directSearchNoGroupClicksOk"))
+        assertTrue(results.getBoolean("labeledSearchInputFoundOk"))
+        assertTrue(results.getBoolean("missingSearchDiagnosticOk"))
+        assertTrue(results.getBoolean("verifiedAliasOk"))
+        assertTrue(results.getBoolean("buyDropdownSwitchedOnceOk"))
+        assertTrue(results.getBoolean("sellSingleOk"))
+        assertTrue(results.getBoolean("blankPendingPriceRejectedOk"))
+        assertTrue(results.getBoolean("rejectionDoneAndTicketClosedOk"))
+        assertTrue(results.getBoolean("serial3TradesConfirmedOk"))
+        assertTrue(results.getBoolean("unknownNoDuplicateSubmitOk"))
+    }
+
+    @Test
+    fun `Part 13 MT4 hidden Market Watch open via View menu and Ctrl+M, panel bbox contextmenu Show All priority, row New Order without dblclick, and multi-order`() {
+        val discHiddenViewJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT4", "EURUSD", "Exness", "Exness-Trial10", "{}", 10)
+        val discHiddenCtrlMJs = WebTerminalScripts.buildSymbolDiscoveryScript("MT4", "XAUUSD.m", "Exness", "Exness-Trial10", "{}", 10)
+        val tradeMt4Multi2Js = WebTerminalScripts.buildTradeScript("XAUUSD.m", "BUY", "0.04", "2620", "2690", "BTECH-MT4", 2, "MT4", "Exness", "Exness-Trial10", "{}", "mt4-s1", 25, "", 201L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://metatraderweb.app/trade', pathname: '/trade' };
+
+          function setupMt4Scenario(opts) {
+            opts = opts || {};
+            const doc = createDomDocument();
+            const st = {
+              mwOpenedBy: '',
+              panelContextCoords: null,
+              showAllClicks: 0,
+              symbolsDlgClicks: 0,
+              rowRightClicks: 0,
+              newOrderClicks: 0,
+              dblClicks: 0,
+              openForms: 0,
+              buyClicks: 0,
+              filledLot: '',
+              filledSl: '',
+              filledTp: '',
+              filledComment: '',
+              okDismissed: 0,
+              logs: [],
+              results: []
+            };
+            const hdr = doc.createElement('div');
+            hdr.textContent = 'Balance: 3,207.68 ZAR Equity: 2,989.94 ZAR Positions';
+            doc.body.appendChild(hdr);
+
+            const mw = doc.createElement('div');
+            mw.className = 'market-watch-panel';
+            // Explicit realistic desktop panel bounding box
+            mw.getBoundingClientRect = function() {
+              if (!this.isConnected || this.style.display === 'none') {
+                return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+              }
+              return { left: 12, top: 64, width: 280, height: 420, right: 292, bottom: 484 };
+            };
+            if (opts.hiddenInitially) mw.style.display = 'none';
+
+            const mwTitle = doc.createElement('div');
+            mwTitle.textContent = 'Market Watch';
+            mw.appendChild(mwTitle);
+            const tbl = doc.createElement('table');
+            const tbody = doc.createElement('tbody');
+            tbl.appendChild(tbody);
+            mw.appendChild(tbl);
+
+            let currentSymbols = (opts.initialSymbols || ['EURUSD', 'AUDCAD']).slice();
+            function renderRows() {
+              tbody.textContent = '';
+              currentSymbols.forEach(function(sym) {
+                const tr = doc.createElement('tr');
+                const td = doc.createElement('td');
+                td.textContent = sym;
+                tr.appendChild(td);
+                tr.addEventListener('dblclick', function() { st.dblClicks++; });
+                tr.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  st.rowRightClicks++;
+                  const oldM = doc.querySelectorAll('.mt4-ctx-menu');
+                  oldM.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+                  const menu = doc.createElement('div');
+                  menu.className = 'mt4-ctx-menu';
+                  ['Chart Window', 'New Order', 'Specification'].forEach(function(lbl) {
+                    const mi = doc.createElement('div');
+                    mi.setAttribute('role', 'menuitem');
+                    mi.textContent = lbl;
+                    if (lbl === 'New Order') {
+                      mi.addEventListener('click', function() {
+                        st.newOrderClicks++;
+                        if (menu.parentElement) menu.parentElement.removeChild(menu);
+                        openTicket(sym);
+                      });
+                    }
+                    menu.appendChild(mi);
+                  });
+                  doc.body.appendChild(menu);
+                });
+                tbody.appendChild(tr);
+              });
+            }
+            renderRows();
+
+            mw.addEventListener('contextmenu', function(ev) {
+              st.panelContextCoords = { x: ev.clientX, y: ev.clientY };
+              const oldM = doc.querySelectorAll('.mt4-ctx-menu');
+              oldM.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+              const menu = doc.createElement('div');
+              menu.className = 'mt4-ctx-menu';
+              // Show All intentionally at index 2 (not 7th) alongside Symbols... to verify Show All priority by label
+              ['Chart Window', 'Symbols...', 'Show All', 'Hide All'].forEach(function(lbl) {
+                const mi = doc.createElement('div');
+                mi.setAttribute('role', 'menuitem');
+                mi.textContent = lbl;
+                if (lbl === 'Symbols...') {
+                  mi.addEventListener('click', function() { st.symbolsDlgClicks++; });
+                } else if (lbl === 'Show All') {
+                  mi.addEventListener('click', function() {
+                    st.showAllClicks++;
+                    if (menu.parentElement) menu.parentElement.removeChild(menu);
+                    currentSymbols = ['EURUSD', 'AUDCAD', 'XAUUSD.m', 'GBPUSD'];
+                    renderRows();
+                  });
+                }
+                menu.appendChild(mi);
+              });
+              doc.body.appendChild(menu);
+            });
+            doc.body.appendChild(mw);
+
+            if (opts.hiddenVia === 'view_menu') {
+              const viewBtn = doc.createElement('button');
+              viewBtn.textContent = 'View';
+              viewBtn.addEventListener('click', function() {
+                const vm = doc.createElement('div');
+                vm.setAttribute('role', 'menu');
+                const mwItem = doc.createElement('div');
+                mwItem.setAttribute('role', 'menuitem');
+                mwItem.textContent = 'Market Watch';
+                mwItem.addEventListener('click', function() {
+                  st.mwOpenedBy = 'view_menu';
+                  mw.style.display = 'block';
+                  if (vm.parentElement) vm.parentElement.removeChild(vm);
+                });
+                vm.appendChild(mwItem);
+                doc.body.appendChild(vm);
+              });
+              doc.body.appendChild(viewBtn);
+            } else if (opts.hiddenVia === 'ctrl_m') {
+              doc.body.addEventListener('keydown', function(ev) {
+                if (ev && ev.ctrlKey && String(ev.key || '').toLowerCase() === 'm') {
+                  st.mwOpenedBy = 'ctrl_m';
+                  mw.style.display = 'block';
+                }
+              });
+            }
+
+            let activeTicket = null;
+            function openTicket(sym) {
+              if (activeTicket && activeTicket.parentElement) activeTicket.parentElement.removeChild(activeTicket);
+              activeTicket = doc.createElement('div');
+              activeTicket.setAttribute('role', 'dialog');
+              activeTicket.className = 'mt4-order-ticket';
+              st.openForms++;
+
+              const title = doc.createElement('h3');
+              title.setAttribute('data-symbol', sym);
+              title.textContent = 'Order — ' + sym;
+              activeTicket.appendChild(title);
+
+              const vIn = doc.createElement('input');
+              vIn.name = 'volume';
+              vIn.placeholder = 'Volume';
+              vIn.addEventListener('input', function() { st.filledLot = vIn.value; });
+              const slIn = doc.createElement('input');
+              slIn.name = 'sl';
+              slIn.placeholder = 'Stop Loss';
+              slIn.addEventListener('input', function() { st.filledSl = slIn.value; });
+              const tpIn = doc.createElement('input');
+              tpIn.name = 'tp';
+              tpIn.placeholder = 'Take Profit';
+              tpIn.addEventListener('input', function() { st.filledTp = tpIn.value; });
+              const cmIn = doc.createElement('input');
+              cmIn.name = 'comment';
+              cmIn.placeholder = 'Comment';
+              cmIn.addEventListener('input', function() { st.filledComment = cmIn.value; });
+
+              const buyBtn = doc.createElement('button');
+              buyBtn.textContent = 'Buy by Market';
+              buyBtn.addEventListener('click', function() {
+                st.buyClicks++;
+                const pos = doc.createElement('tr');
+                pos.textContent = '#40900' + st.buyClicks + ' buy ' + st.filledLot + ' ' + sym + ' at 2650.00';
+                doc.body.appendChild(pos);
+                const dlg = doc.createElement('div');
+                dlg.setAttribute('role', 'dialog');
+                dlg.className = 'trade-result';
+                const status = doc.createElement('div');
+                status.className = 'status';
+                status.textContent = 'Done: Order #40900' + st.buyClicks + ' opened';
+                const ok = doc.createElement('button');
+                ok.textContent = 'OK';
+                ok.addEventListener('click', function() {
+                  st.okDismissed++;
+                  if (dlg.parentElement) dlg.parentElement.removeChild(dlg);
+                  if (activeTicket && activeTicket.parentElement) activeTicket.parentElement.removeChild(activeTicket);
+                });
+                dlg.appendChild(status);
+                dlg.appendChild(ok);
+                doc.body.appendChild(dlg);
+              });
+
+              activeTicket.appendChild(vIn);
+              activeTicket.appendChild(slIn);
+              activeTicket.appendChild(tpIn);
+              activeTicket.appendChild(cmIn);
+              activeTicket.appendChild(buyBtn);
+              doc.body.appendChild(activeTicket);
+            }
+
+            installDoc(doc);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return { doc: doc, st: st };
+          }
+
+          // 1. Hidden Market Watch opened via View -> Market Watch (existing EURUSD skips Show All)
+          let ctx = setupMt4Scenario({ hiddenInitially: true, hiddenVia: 'view_menu' });
+          eval(${JSONObject.quote(discHiddenViewJs)});
+          const rView = await window.__btechLastDiscoveryPromise;
+          const hiddenViewOpenedAndSkippedShowAllOk =
+            rView.success &&
+            rView.actualSymbol === 'EURUSD' &&
+            ctx.st.mwOpenedBy === 'view_menu' &&
+            ctx.st.showAllClicks === 0;
+
+          // 2. Hidden Market Watch opened via Ctrl+M + missing symbol right-clicks inside panel bbox & prioritises Show All
+          ctx = setupMt4Scenario({ hiddenInitially: true, hiddenVia: 'ctrl_m' });
+          eval(${JSONObject.quote(discHiddenCtrlMJs)});
+          const rCtrlM = await window.__btechLastDiscoveryPromise;
+          const coords = ctx.st.panelContextCoords;
+          const hiddenCtrlMBboxShowAllOk =
+            rCtrlM.success &&
+            rCtrlM.actualSymbol === 'XAUUSD.m' &&
+            ctx.st.mwOpenedBy === 'ctrl_m' &&
+            coords && coords.x >= 12 && coords.x <= 292 && coords.y >= 64 && coords.y <= 484 &&
+            ctx.st.showAllClicks === 1 &&
+            ctx.st.symbolsDlgClicks === 0;
+
+          // 3. Full MT4 2-trade sequential execution: Show All -> re-inspect -> row right-click New Order (zero dblclicks) -> OK cleanup -> Trade 2
+          ctx = setupMt4Scenario({ hiddenInitially: false });
+          eval(${JSONObject.quote(tradeMt4Multi2Js)});
+          for (let w = 0; w < 220 && !ctx.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const mt4Multi2SerialCleanOk =
+            ctx.st.dblClicks === 0 &&
+            ctx.st.showAllClicks === 1 &&
+            ctx.st.rowRightClicks === 2 &&
+            ctx.st.newOrderClicks === 2 &&
+            ctx.st.openForms === 2 &&
+            ctx.st.buyClicks === 2 &&
+            ctx.st.okDismissed === 2 &&
+            ctx.st.filledLot === '0.04' &&
+            ctx.st.filledSl === '2620' &&
+            ctx.st.filledTp === '2690' &&
+            ctx.st.filledComment === 'BTECH-MT4' &&
+            ctx.doc.querySelectorAll('.trade-result, .mt4-order-ticket').length === 0 &&
+            ctx.st.results.length === 1 &&
+            ctx.st.results[0].confirmedCount === 2;
+
+          console.log(JSON.stringify({
+            ok: true,
+            hiddenViewOpenedAndSkippedShowAllOk: hiddenViewOpenedAndSkippedShowAllOk,
+            hiddenCtrlMBboxShowAllOk: hiddenCtrlMBboxShowAllOk,
+            mt4Multi2SerialCleanOk: mt4Multi2SerialCleanOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Part 13 MT4 suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("hiddenViewOpenedAndSkippedShowAllOk"))
+        assertTrue(results.getBoolean("hiddenCtrlMBboxShowAllOk"))
+        assertTrue(results.getBoolean("mt4Multi2SerialCleanOk"))
+    }
+
+    @Test
+    fun `Part 13 Strict blocking dialog cleanup retries refused dismissals, awaits async removal, aborts blocked new signals, and never closes open positions`() {
+        val trade2SequentialJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-CLN", 2, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "cln-1", 25, "", 301L)
+        val tradeNewSignalBlockedJs = WebTerminalScripts.buildTradeScript("EURUSD", "BUY", "0.01", "", "", "BTECH-BLK", 1, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "cln-2", 25, "", 302L)
+        val tradeFreshAfterErrorJs = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-REC", 1, "MT5", "JustMarkets", "JustMarkets-Live", "{}", "cln-3", 25, "", 303L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://live.justmarkets.com/terminal', pathname: '/terminal' };
+
+          function createCleanupDom(cfg) {
+            cfg = cfg || {};
+            const d = createDomDocument();
+            const st = {
+              searchInputsTyped: 0,
+              newOrderClicks: 0,
+              buyClicks: 0,
+              buySubmittedWhileModalOpen: false,
+              openPositionActionClicks: 0,
+              dismissAttemptsOnModal: 0,
+              staleErrDismissed: false,
+              logs: [],
+              results: []
+            };
+            const hdr = d.createElement('div');
+            hdr.textContent = 'Balance: 4,000.00 USD Equity: 4,000.00 USD Quotes Chart Trade';
+            d.body.appendChild(hdr);
+
+            // Real open position & history/pending rows with Close Position / Close / Delete / Modify controls -> NEVER clicked!
+            const posTbl = d.createElement('table');
+            posTbl.className = 'positions-table';
+            const posRow = d.createElement('tr');
+            posRow.setAttribute('role', 'row');
+            const posText = d.createElement('td');
+            posText.textContent = '#112233 buy 0.10 EURUSD at 1.0950';
+            posRow.appendChild(posText);
+            ['Close Position', 'Close', 'Delete', 'Modify'].forEach(function(lbl) {
+              const tdCell = d.createElement('td');
+              const btn = d.createElement('button');
+              btn.textContent = lbl;
+              btn.addEventListener('click', function() { st.openPositionActionClicks++; });
+              tdCell.appendChild(btn);
+              posRow.appendChild(tdCell);
+            });
+            posTbl.appendChild(posRow);
+            d.body.appendChild(posTbl);
+
+            if (cfg.staleErrorPopup) {
+              const staleErr = d.createElement('div');
+              staleErr.setAttribute('role', 'alertdialog');
+              staleErr.className = 'trade-result';
+              const txt = d.createElement('div');
+              txt.className = 'error';
+              txt.textContent = 'Previous Off quotes';
+              const okBtn = d.createElement('button');
+              okBtn.textContent = 'OK';
+              okBtn.addEventListener('click', function() {
+                st.staleErrDismissed = true;
+                if (staleErr.parentElement) staleErr.parentElement.removeChild(staleErr);
+              });
+              staleErr.appendChild(txt);
+              staleErr.appendChild(okBtn);
+              d.body.appendChild(staleErr);
+            }
+
+            if (cfg.unclosableModal) {
+              const stuckDlg = d.createElement('div');
+              stuckDlg.setAttribute('role', 'dialog');
+              stuckDlg.className = 'trade-result';
+              const txt = d.createElement('div');
+              txt.textContent = 'Previous fatal modal';
+              const okBtn = d.createElement('button');
+              okBtn.textContent = 'OK';
+              // Deliberately does NOT remove stuckDlg on click -> simulates unclosable modal
+              okBtn.addEventListener('click', function() { st.dismissAttemptsOnModal++; });
+              stuckDlg.appendChild(txt);
+              stuckDlg.appendChild(okBtn);
+              d.body.appendChild(stuckDlg);
+            }
+
+            const sIn = d.createElement('input');
+            sIn.setAttribute('placeholder', 'Search symbol');
+            sIn.addEventListener('input', function() { if (sIn.value) st.searchInputsTyped++; });
+            d.body.appendChild(sIn);
+
+            ['XAUUSD', 'EURUSD'].forEach(function(sym) {
+              const r = d.createElement('div');
+              r.setAttribute('role', 'row');
+              r.setAttribute('data-symbol', sym);
+              r.textContent = sym;
+              d.body.appendChild(r);
+            });
+
+            const newOrderBtn = d.createElement('button');
+            newOrderBtn.setAttribute('title', 'New Order');
+            newOrderBtn.textContent = 'New Order';
+            let activeForm = null;
+            let activeModal = null;
+
+            newOrderBtn.addEventListener('click', function() {
+              st.newOrderClicks++;
+              if (activeForm && activeForm.parentElement) activeForm.parentElement.removeChild(activeForm);
+              activeForm = d.createElement('div');
+              activeForm.className = 'trade-form';
+              activeForm.setAttribute('role', 'dialog');
+              const symH = d.createElement('div');
+              symH.setAttribute('data-symbol', 'XAUUSD');
+              symH.textContent = 'XAUUSD';
+              activeForm.appendChild(symH);
+              const vw = d.createElement('div');
+              vw.className = 'trade-input';
+              const vl = d.createElement('span');
+              vl.className = 'label';
+              vl.textContent = 'Volume';
+              const vi = d.createElement('input');
+              vw.appendChild(vl);
+              vw.appendChild(vi);
+              activeForm.appendChild(vw);
+
+              const buyB = d.createElement('button');
+              buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                if (activeModal && activeModal.isConnected) {
+                  st.buySubmittedWhileModalOpen = true;
+                }
+                st.buyClicks++;
+                const pos = d.createElement('tr');
+                pos.textContent = '#8800' + st.buyClicks + ' buy ' + vi.value + ' XAUUSD at 2650.00';
+                d.body.appendChild(pos);
+
+                // Modal refuses 1st dismissal click, accepts 2nd click, and removes itself after 180ms async delay
+                const m = d.createElement('div');
+                m.setAttribute('role', 'dialog');
+                m.className = 'trade-result';
+                activeModal = m;
+                let clicksOnThisModal = 0;
+                const sDiv = d.createElement('div');
+                sDiv.className = 'status';
+                sDiv.textContent = 'Done: Order #8800' + st.buyClicks + ' confirmed';
+                const ok = d.createElement('button');
+                ok.textContent = 'OK';
+                ok.addEventListener('click', function() {
+                  clicksOnThisModal++;
+                  st.dismissAttemptsOnModal++;
+                  if (clicksOnThisModal >= 2) {
+                    setTimeout(function() {
+                      if (m.parentElement) m.parentElement.removeChild(m);
+                      if (activeForm && activeForm.parentElement) activeForm.parentElement.removeChild(activeForm);
+                    }, 180);
+                  }
+                });
+                m.appendChild(sDiv);
+                m.appendChild(ok);
+                d.body.appendChild(m);
+              });
+              activeForm.appendChild(buyB);
+              d.body.appendChild(activeForm);
+            });
+            d.body.appendChild(newOrderBtn);
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return { doc: d, st: st };
+          }
+
+          // 1. Stale error cleared + Trade 1 modal refuses 1st click, delayed async 180ms disappearance awaited before Trade 2, open positions untouched
+          const ctx1 = createCleanupDom({ staleErrorPopup: true });
+          eval(${JSONObject.quote(trade2SequentialJs)});
+          for (let w = 0; w < 260 && !ctx1.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const retryDelayAndOpenPosUntouchedOk =
+            ctx1.st.staleErrDismissed === true &&
+            ctx1.st.buyClicks === 2 &&
+            !ctx1.st.buySubmittedWhileModalOpen &&
+            ctx1.st.dismissAttemptsOnModal >= 4 &&
+            ctx1.st.openPositionActionClicks === 0 &&
+            ctx1.doc.querySelectorAll('.trade-result, .trade-form').length === 0 &&
+            ctx1.st.results.length === 1 &&
+            ctx1.st.results[0].confirmedCount === 2;
+
+          // 2. Unclosable previous blocking modal MUST abort new incoming signal BEFORE symbol search or New Order!
+          const ctx2 = createCleanupDom({ unclosableModal: true });
+          eval(${JSONObject.quote(tradeNewSignalBlockedJs)});
+          for (let w = 0; w < 120 && !ctx2.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const unclosableModalAbortsNewSignalOk =
+            ctx2.st.dismissAttemptsOnModal >= 1 &&
+            ctx2.st.searchInputsTyped === 0 &&
+            ctx2.st.newOrderClicks === 0 &&
+            ctx2.st.buyClicks === 0 &&
+            ctx2.st.openPositionActionClicks === 0 &&
+            ctx2.st.results.length === 1 &&
+            ctx2.st.results[0].status === 'REJECTED' &&
+            ctx2.st.results[0].rawMessage.indexOf('Previous terminal dialog could not be cleared') >= 0;
+
+          // 3. Previous failed trade that WAS cleanly dismissed does NOT leave subsequent fresh signal blocked
+          const ctx3 = createCleanupDom({ staleErrorPopup: true });
+          eval(${JSONObject.quote(tradeFreshAfterErrorJs)});
+          for (let w = 0; w < 180 && !ctx3.st.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const recoveredTerminalAcceptsFreshSignalOk =
+            ctx3.st.staleErrDismissed === true &&
+            ctx3.st.buyClicks === 1 &&
+            ctx3.st.openPositionActionClicks === 0 &&
+            ctx3.st.results.length === 1 &&
+            ctx3.st.results[0].status === 'ACCEPTED';
+
+          console.log(JSON.stringify({
+            ok: true,
+            retryDelayAndOpenPosUntouchedOk: retryDelayAndOpenPosUntouchedOk,
+            unclosableModalAbortsNewSignalOk: unclosableModalAbortsNewSignalOk,
+            recoveredTerminalAcceptsFreshSignalOk: recoveredTerminalAcceptsFreshSignalOk
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Part 13 Strict Cleanup suite failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue(results.getBoolean("retryDelayAndOpenPosUntouchedOk"))
+        assertTrue(results.getBoolean("unclosableModalAbortsNewSignalOk"))
+        assertTrue(results.getBoolean("recoveredTerminalAcceptsFreshSignalOk"))
+    }
+
     private fun runNodeHarness(testScriptJs: String): JSONObject {
         val nodePath = listOf("/usr/local/bin/node", "/usr/bin/node")
             .firstOrNull { File(it).canExecute() }
@@ -1929,7 +3073,9 @@ class RoboTraderDiscoveryTest {
             const stats = {
               mt5SearchTouched: false,
               showAllClicked: false,
-              doubleClickedSymbol: '',
+              selectedSymbol: '',
+              newOrderClickedSymbol: '',
+              dblClicks: 0,
               buyClicks: 0,
               sellClicks: 0,
               authRequiredCalls: 0,
@@ -1978,18 +3124,42 @@ class RoboTraderDiscoveryTest {
                 const cell = doc.createElement('td');
                 cell.textContent = sym + ' 1.1050 1.1052';
                 row.appendChild(cell);
+                row.addEventListener('click', function() {
+                  stats.selectedSymbol = sym;
+                });
                 row.addEventListener('dblclick', function() {
-                  stats.doubleClickedSymbol = sym;
-                  openOrderTicket(sym);
+                  stats.dblClicks++;
+                });
+                row.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  const oldMenus = doc.querySelectorAll('.mt4-ctx-menu');
+                  oldMenus.forEach(function(m) { if (m.parentElement) m.parentElement.removeChild(m); });
+                  const rowMenu = doc.createElement('div');
+                  rowMenu.className = 'mt4-ctx-menu';
+                  ['Chart Window', 'New Order', 'Depth of Market'].forEach(function(lbl) {
+                    const mi = doc.createElement('div');
+                    mi.setAttribute('role', 'menuitem');
+                    mi.textContent = lbl;
+                    if (lbl === 'New Order') {
+                      mi.addEventListener('click', function() {
+                        stats.newOrderClickedSymbol = sym;
+                        if (rowMenu.parentElement) rowMenu.parentElement.removeChild(rowMenu);
+                        openOrderTicket(sym);
+                      });
+                    }
+                    rowMenu.appendChild(mi);
+                  });
+                  doc.body.appendChild(rowMenu);
                 });
                 mw.appendChild(row);
               });
             }
             renderRows(initialSymbols);
 
-            // Context menu opens on right-click (Show All is placed at index 1, NOT index 6!)
+            // Panel Context menu opens on panel right-click (Show All is placed at index 1, NOT index 6!)
             mw.addEventListener('contextmenu', function() {
-              if (mw.querySelectorAll('.mt4-ctx-menu').length > 0) return;
+              const oldMenus = doc.querySelectorAll('.mt4-ctx-menu');
+              oldMenus.forEach(function(m) { if (m.parentElement) m.parentElement.removeChild(m); });
               const menu = doc.createElement('div');
               menu.className = 'mt4-ctx-menu';
               const items = ['New Order', 'Show All', 'Hide All', 'Chart Window', 'Tick Chart'];
@@ -2000,6 +3170,7 @@ class RoboTraderDiscoveryTest {
                 if (lbl === 'Show All') {
                   mi.addEventListener('click', function() {
                     stats.showAllClicked = true;
+                    if (menu.parentElement) menu.parentElement.removeChild(menu);
                     setTimeout(function() { renderRows(allSymbols); }, 20);
                   });
                 }
@@ -2070,11 +3241,11 @@ class RoboTraderDiscoveryTest {
             return stats;
           }
 
-          // 1. Exact visible match
+          // 1. Exact visible match (selects without dblclick)
           let st = buildMt4Dom();
           eval($sExact);
           let res = await window.__btechLastDiscoveryPromise;
-          const exactMatchOk = res.success && res.actualSymbol === 'EURUSD' && st.doubleClickedSymbol === 'EURUSD' && !st.mt5SearchTouched;
+          const exactMatchOk = res.success && res.actualSymbol === 'EURUSD' && st.selectedSymbol === 'EURUSD' && !st.mt5SearchTouched && st.dblClicks === 0;
 
           // 2-6. Hidden symbol -> Show All by text (not hardcoded 7th item) -> case-insensitive .m -> catalog > 8
           st = buildMt4Dom();
@@ -2133,16 +3304,18 @@ class RoboTraderDiscoveryTest {
           eval($sCancelTarget);
           setTimeout(function() { eval($sCancelExec); }, 20);
           res = await window.__btechLastDiscoveryPromise;
-          const cancelAbortsMidDiscovery = res.cancelled === true && st.doubleClickedSymbol === '';
+          const cancelAbortsMidDiscovery = res.cancelled === true && st.selectedSymbol === '';
 
-          // 13. Full MT4 mock execution verifies ticket + fields, clicks Buy by Market ONCE, confirms ticket, emits DONE
+          // 13. Full MT4 mock execution opens via row context menu 'New Order' (zero dblclick), verifies ticket + fields, clicks Buy by Market ONCE, confirms ticket, emits DONE
           st = buildMt4Dom();
           eval($sExecTrade);
           for (let w = 0; w < 80 && !st.logs.some(function(l) { return l.done; }); w++) {
             await sleepMs(50);
           }
+          const zeroDoubleClicksUsedOk = st.dblClicks === 0;
           const mt4MockOrderExecutedOnceAndConfirmed =
-            st.doubleClickedSymbol === 'EURUSD' &&
+            st.newOrderClickedSymbol === 'EURUSD' &&
+            st.dblClicks === 0 &&
             st.buyClicks === 1 &&
             st.sellClicks === 0 &&
             st.phases.some(function(p) { return p.k === 'DONE'; }) &&
@@ -2163,6 +3336,7 @@ class RoboTraderDiscoveryTest {
             authLostTriggersBridge: authLostTriggersBridge,
             cancelAbortsMidDiscovery: cancelAbortsMidDiscovery,
             mt4MockOrderExecutedOnceAndConfirmed: mt4MockOrderExecutedOnceAndConfirmed,
+            zeroDoubleClicksUsedOk: zeroDoubleClicksUsedOk,
             executedBuyClicks: st.buyClicks,
             executedSellClicks: st.sellClicks
           }));
@@ -2496,11 +3670,12 @@ class RoboTraderDiscoveryTest {
             this.cancelable = !!opts.cancelable;
             this.composed = !!opts.composed;
             this.defaultPrevented = false;
+            this._stopped = false;
             this.target = null;
             this.currentTarget = null;
           }
           preventDefault() { this.defaultPrevented = true; }
-          stopPropagation() {}
+          stopPropagation() { this._stopped = true; }
         }
 
         class ShimMouseEvent extends ShimEvent {
@@ -2522,6 +3697,10 @@ class RoboTraderDiscoveryTest {
             this.code = opts.code || '';
             this.keyCode = opts.keyCode || 0;
             this.which = opts.which || 0;
+            this.ctrlKey = !!opts.ctrlKey;
+            this.altKey = !!opts.altKey;
+            this.shiftKey = !!opts.shiftKey;
+            this.metaKey = !!opts.metaKey;
           }
         }
 
@@ -2707,7 +3886,13 @@ class RoboTraderDiscoveryTest {
           get placeholder() { return this.attributes['placeholder'] || ''; }
           set placeholder(v) { this.attributes['placeholder'] = String(v); }
           get value() { return this._value; }
-          set value(v) { this._value = String(v === undefined || v === null ? '' : v); }
+          set value(v) {
+            this._value = String(v === undefined || v === null ? '' : v);
+            if (this.tagName === 'SELECT' && this.options.length > 0) {
+              const idx = this.options.findIndex(o => String(o.value || o.textContent) === this._value);
+              if (idx >= 0) this.selectedIndex = idx;
+            }
+          }
           get textContent() {
             if (this.children.length === 0) return this._text;
             return (this._text ? this._text + ' ' : '') + this.children.map(function(c) { return c.textContent; }).join(' ');
@@ -2723,11 +3908,19 @@ class RoboTraderDiscoveryTest {
             const key = String(k).toLowerCase();
             return Object.prototype.hasOwnProperty.call(this.attributes, key) ? this.attributes[key] : null;
           }
+          prepend(child) {
+            child.parentElement = this;
+            this.children.unshift(child);
+            return child;
+          }
           appendChild(child) {
             child.parentElement = this;
             this.children.push(child);
             if (this.tagName === 'SELECT' && child.tagName === 'OPTION') {
               this.options.push(child);
+              if (this.options.length === 1 && !this._value) {
+                this._value = String(child.value || child.textContent || '');
+              }
             }
             return child;
           }
@@ -2777,7 +3970,7 @@ class RoboTraderDiscoveryTest {
               for (let i = 0; i < list.length; i++) {
                 list[i].call(cur, ev);
               }
-              if (!ev.bubbles) break;
+              if (!ev.bubbles || ev._stopped) break;
               cur = cur.parentElement;
             }
             return !ev.defaultPrevented;
@@ -2810,7 +4003,9 @@ class RoboTraderDiscoveryTest {
             getElementsByTagName: function(tag) { return doc.documentElement.getElementsByTagName(tag); }
           };
           doc.documentElement = new ShimElement('HTML', doc);
+          doc.head = new ShimElement('HEAD', doc);
           doc.body = new ShimElement('BODY', doc);
+          doc.documentElement.appendChild(doc.head);
           doc.documentElement.appendChild(doc.body);
           doc.body.isConnected;
           return doc;

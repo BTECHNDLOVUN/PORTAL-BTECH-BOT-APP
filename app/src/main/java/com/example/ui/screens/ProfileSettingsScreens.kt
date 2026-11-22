@@ -128,6 +128,7 @@ import com.example.ui.theme.JetBrainsMono
 import com.example.ui.theme.LocalBtechColors
 import com.example.viewmodel.AppUiState
 import com.example.webterminal.WebTerminalEngine
+import com.example.webterminal.WebTerminalHeartbeat
 import com.example.webterminal.WebTerminalStatus
 
 @Composable
@@ -1421,6 +1422,7 @@ fun SimulateTradeDialog(
 fun WebTerminalInspectorDialog(
     webEngine: WebTerminalEngine,
     webStatus: WebTerminalStatus,
+    webHeartbeat: WebTerminalHeartbeat = WebTerminalHeartbeat(),
     onConfirmSession: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1438,6 +1440,7 @@ fun WebTerminalInspectorDialog(
     DisposableEffect(hostContainer) {
         val container = hostContainer
         onDispose {
+            webEngine.setInspectMode(false)
             if (container != null) {
                 webEngine.detachIfParent(container)
             }
@@ -1634,6 +1637,80 @@ fun WebTerminalInspectorDialog(
                         trackColor = extra.surface2,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+
+                if (webHeartbeat.lastHeartbeat > 0L || webHeartbeat.currentStage != "IDLE") {
+                    val hbLabel = buildString {
+                        append(if (webHeartbeat.javascriptRunning) "JS LIVE" else "JS STALLED")
+                        append(" · ")
+                        append(if (webHeartbeat.authenticated) "AUTH OK" else if (webHeartbeat.terminalLoaded) "LOADED" else "INIT")
+                        if (webHeartbeat.currentStage.isNotBlank() && webHeartbeat.currentStage != "IDLE") {
+                            append(" · ")
+                            append(webHeartbeat.currentStage)
+                        }
+                    }
+                    Text(
+                        text = hbLabel,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (webHeartbeat.javascriptRunning) extra.green else extra.red,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(extra.surface2)
+                            .padding(horizontal = 12.dp, vertical = 3.dp),
+                    )
+                }
+
+                run {
+                    val diag = webStatus.viewportDiagnostics
+                    val modeTag = when {
+                        !webStatus.isDesktopMode -> "MOBILE"
+                        diag?.documentStartSupported == true -> "DOC-START"
+                        diag?.fallbackApplied == true -> "FALLBACK"
+                        else -> "DESKTOP"
+                    }
+                    val diagText = if (diag != null && diag.measuredAtMs > 0L) {
+                        val metaShort = diag.metaViewport.ifBlank { "none" }.take(38)
+                        "Layout: ${diag.innerWidth}x${diag.innerHeight} CSS (client=${diag.clientWidth}, vv=${diag.visualViewportWidth}) · Target ${webStatus.desktopViewportWidth}px · $modeTag · meta=$metaShort"
+                    } else {
+                        "Viewport Target: ${webStatus.desktopViewportWidth}px ($modeTag) · Tap Measure to inspect CSS layout"
+                    }
+                    val diagColor = when {
+                        !webStatus.isDesktopMode -> extra.muted
+                        diag == null || diag.measuredAtMs == 0L -> extra.muted
+                        diag.layoutIsDesktopWidth -> extra.green
+                        else -> extra.red
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(extra.surface2)
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = diagText,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = diagColor,
+                            maxLines = 2,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("viewport_diagnostics_text"),
+                        )
+                        Text(
+                            text = "Measure",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { webEngine.collectDesktopViewportDiagnostics() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("measure_viewport_button"),
+                        )
+                    }
                 }
 
                 AndroidView(

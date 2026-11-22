@@ -88,6 +88,7 @@ import kotlinx.coroutines.delay
 fun BtechApp(viewModel: BtechViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val webStatus by viewModel.webStatus.collectAsStateWithLifecycle()
+    val webHeartbeat by viewModel.webEngine.heartbeat.collectAsStateWithLifecycle()
     val overlaySnapshot by OverlayStateBus.snapshot.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val navController = rememberNavController()
@@ -105,6 +106,10 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
     LaunchedEffect(Unit) {
         delay(1600)
         showSplash = false
+    }
+
+    LaunchedEffect(state.showWebInspector) {
+        viewModel.webEngine.setInspectMode(state.showWebInspector)
     }
 
     LaunchedEffect(state.toastMessage) {
@@ -137,14 +142,25 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
         accentColor = accentColor,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Keep WebView attached to an active non-zero Window viewport once loaded or during
-            // background auth/trading/balance monitoring so Chromium timers and getBoundingClientRect() never throttle.
-            if (!state.showWebInspector && (state.isAuthBusy || state.isSimulatingTrade || state.isBalanceMonitorRunning || state.showInAppFloatingOverlay || webStatus.isLoading || webStatus.isPageReady || webStatus.currentUrl.isNotEmpty())) {
+            // Keep BackgroundWebViewHost persistently mounted whenever an account or WebView session exists
+            // (even while Inspect Dialog temporarily borrows the WebView) so closing Inspect transfers the
+            // WebView atomically back into an attached Window without pausing Chromium JS timers.
+            val shouldHostBackgroundWebView =
+                state.savedAccount != null ||
+                    state.isAuthBusy ||
+                    state.isSimulatingTrade ||
+                    state.isBalanceMonitorRunning ||
+                    state.showInAppFloatingOverlay ||
+                    webStatus.isLoading ||
+                    webStatus.isPageReady ||
+                    webStatus.currentUrl.isNotEmpty() ||
+                    state.showWebInspector
+            if (shouldHostBackgroundWebView) {
                 BackgroundWebViewHost(
                     webEngine = viewModel.webEngine,
                     modifier = Modifier
                         .wrapContentSize(unbounded = true, align = Alignment.TopStart)
-                        .requiredSize(1280.dp, 800.dp)
+                        .requiredSize(1024.dp, 720.dp)
                         .alpha(0.01f),
                 )
             }
@@ -466,6 +482,7 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
                 WebTerminalInspectorDialog(
                     webEngine = viewModel.webEngine,
                     webStatus = webStatus,
+                    webHeartbeat = webHeartbeat,
                     onConfirmSession = viewModel::confirmManualWebSession,
                     onDismiss = viewModel::closeWebInspector,
                 )
@@ -485,7 +502,7 @@ private fun BackgroundWebViewHost(
         val container = hostContainer
         onDispose {
             if (container != null) {
-                webEngine.detachIfParent(container)
+                webEngine.unregisterBackgroundHost(container)
             }
         }
     }
@@ -500,11 +517,11 @@ private fun BackgroundWebViewHost(
                 isFocusableInTouchMode = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                 hostContainer = this
-                webEngine.attachToContainer(this, ctx)
+                webEngine.registerBackgroundHost(this, ctx)
             }
         },
         update = { container ->
-            webEngine.attachToContainer(container, container.context)
+            webEngine.registerBackgroundHost(container, container.context)
         },
         modifier = modifier,
     )

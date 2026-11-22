@@ -1,0 +1,1151 @@
+Your task is to inspect the complete existing project, identify the actual problems in the current implementation, and make the required targeted corrections.
+
+This is an implementation task, not just a code review or an explanation.
+
+You must modify the existing source code in the current project workspace, preserve the existing BTECH application, and deliver a working implementation with appropriate tests.
+
+PART 1 — IMPORTANT BACKGROUND AND THE ACTUAL PROBLEM
+
+The application already has a desktop user-agent option, and the interface displays DESKTOP UA when desktop mode is enabled.
+
+However, the MT5 Web Terminal screenshot from the Android application demonstrates that the terminal still appears to be using a constrained phone-sized layout.
+
+The screenshot shows:
+
+A desktop user-agent is enabled.
+
+The MT5 chart is visible.
+
+The Quotes/Symbols panel and Search symbol field are visible.
+
+The terminal interface is compressed into the available mobile browser width.
+
+Important controls and desktop interface elements are not displayed as expected.
+
+The normal desktop workflow is difficult to identify and automate reliably.
+
+This is the central problem to solve.
+
+A desktop user-agent is not sufficient. We need the actual website layout viewport to use desktop dimensions.
+
+The objective is to make the broker's website behave as though it is being opened in a desktop browser, even though the WebView itself is displayed inside an Android application.
+
+The terminal may look very small on the phone screen after this correction. That is acceptable. Correct desktop rendering and reliable automation are more important than making the terminal look like a mobile-friendly interface.
+
+Do not confuse the physical Android screen dimensions with the website's browser layout viewport.
+
+The Android WebView should continue occupying its normal available space inside the BTECH application. The website itself must use a desktop-equivalent CSS layout viewport.
+
+PART 2 — INSPECT THE EXISTING CODE BEFORE MODIFYING IT
+
+The most important existing files include:
+
+app/src/main/java/com/example/webterminal/WebTerminalEngine.kt
+
+app/src/main/java/com/example/webterminal/WebTerminalScripts.kt
+
+app/src/main/java/com/example/model/BtechModels.kt
+
+app/src/main/java/com/example/viewmodel/BtechViewModel.kt
+
+app/src/main/java/com/example/ui/screens/ProfileSettingsScreens.kt
+
+app/src/test/java/com/example/RoboTraderDiscoveryTest.kt
+
+Also inspect the Android manifest, Gradle dependencies, relevant account models, execution result handling, and the existing JavaScript-to-Kotlin bridge.
+
+Relevant existing implementation:
+
+WebTerminalEngine.applyCleanUserAgent()
+
+WebTerminalEngine.obtainWebView()
+
+WebTerminalEngine.toggleDesktopMode()
+
+WebTerminalEngine.authenticateInBackground()
+
+WebTerminalEngine.executeSimulatedTrade()
+
+WebTerminalEngine.discoverSymbolsOnTerminal()
+
+WebTerminalScripts.buildSymbolDiscoveryScript()
+
+WebTerminalScripts.buildTradeScript()
+
+The existing WebTerminalScripts.kt already includes DOM traversal helpers for regular DOM, Shadow DOM and same-origin iframes, as well as separate MT4 and MT5 discovery routines.
+
+Reuse these existing components.
+
+Do not create a second WebView engine, a second unrelated trade execution framework, or a replacement signal-processing architecture.
+
+Before making changes, understand how signals enter the application, how the selected broker account is identified, how MT4 versus MT5 is determined, and how execution results are communicated back to Kotlin.
+
+PART 3 — CRITICAL: FORCE REAL DESKTOP VIEWPORT RENDERING
+
+This is the first priority.
+
+The current implementation already contains settings such as:
+
+useWideViewPort = true
+
+loadWithOverviewMode = true
+
+textZoom = 100
+
+builtInZoomControls = true
+
+displayZoomControls = false
+
+It also applies a desktop user-agent.
+
+However, broker websites can supply their own viewport meta tags, including width=device-width. This can cause the website to continue using mobile-width responsive layouts.
+
+Investigate this problem and implement an actual desktop layout viewport override.
+
+Required behaviour
+
+The website should use a desktop-equivalent layout viewport, targeting approximately 1366 CSS pixels or wider.
+
+A configurable desktop width with a suitable default, such as 1366 CSS pixels, is acceptable.
+
+The implementation must:
+
+Retain the desktop user-agent.
+
+Apply desktop WebView settings before the broker terminal loads.
+
+Prevent the broker website's mobile viewport declaration from forcing a phone-width layout.
+
+Set or maintain an appropriate desktop-width viewport declaration.
+
+Ensure the override happens early enough to prevent the mobile layout from becoming the initial layout.
+
+Handle pages that modify their viewport metadata after loading.
+
+Retain the required JavaScript, DOM storage, cookies and terminal functionality.
+
+Preserve the existing WebView lifecycle and session handling.
+
+Work when the terminal navigates, reloads, authenticates, or switches pages.
+
+Support the different broker terminal origins configured in saved accounts.
+
+Investigate AndroidX WebKit document-start script support, including WebViewFeature.DOCUMENT_START_SCRIPT and the appropriate WebViewCompat functionality.
+
+If the current project does not include the necessary AndroidX WebKit dependency, inspect the version catalog and add a compatible dependency only when necessary.
+
+Prefer injecting the viewport correction at document start, before the broker page's application scripts initialise.
+
+Use the appropriate allowed-origin configuration based on the saved broker terminal URL. Do not unnecessarily expose the document-start script to every website.
+
+If document-start injection is unavailable on a particular device, provide a carefully implemented fallback and report its limitations. Do not pretend that an evaluateJavascript() call made only after onPageFinished() is equivalent to a document-start override.
+
+A min-width CSS declaration alone is not an adequate solution because it does not necessarily change responsive media-query behaviour or the actual layout viewport.
+
+Desktop scaling
+
+The website must retain its desktop layout while fitting inside the Android WebView.
+
+Use appropriate scaling and zoom behaviour so that:
+
+The full desktop interface can be viewed.
+
+Horizontal scrolling remains possible where necessary.
+
+Vertical scrolling remains possible.
+
+The user can zoom in and out.
+
+Desktop content is not clipped merely because the Android display is narrow.
+
+The user has explicitly accepted that controls and text may appear tiny.
+
+Do not redesign the broker website or make its desktop controls artificially larger.
+
+Do not enlarge the actual Android Compose container to 1366 Android density-independent pixels. The requirement is a desktop-sized website layout viewport, not an oversized physical Android view.
+
+Add desktop viewport diagnostics
+
+Implement a diagnostic routine that reports the actual page layout dimensions.
+
+At minimum, collect:
+
+window.innerWidth
+
+document.documentElement.clientWidth
+
+window.visualViewport.width, when available
+
+window.innerHeight
+
+The current viewport meta tag and its content
+
+The active user-agent
+
+The current page URL
+
+Whether desktop viewport enforcement was applied successfully
+
+Do not use screen.width as the only proof of desktop rendering because it may still report the physical device screen.
+
+The diagnostic should be accessible through existing Web Terminal inspection or diagnostic functionality, where practical.
+
+The implementation must prove that the website is using the intended desktop layout width rather than simply displaying the words DESKTOP UA.
+
+Acceptance condition: When the Web Terminal is opened on an Android phone, the broker webpage must report a desktop-width layout viewport, approximately 1366 CSS pixels or the selected configured width, and must render the desktop terminal layout.
+
+Test the result using the existing MT5 terminal URL and the available MT4 terminal URLs in the project.
+
+PART 4 — MT5 SYMBOL DISCOVERY
+
+MT5 must use a direct symbol-search approach.
+
+Do not make broker account categories or symbol groups mandatory.
+
+Different brokers may have different interfaces:
+
+Some show Forex, Crypto, Indices and other groups after opening the symbol search interface.
+
+Some show account types such as Standard, Pro or Micro before showing symbol groups.
+
+Some expose a search field immediately.
+
+Some use different labels or terminal-specific layouts.
+
+These differences are examples of broker interfaces, not a workflow that the automation must reproduce.
+
+The preferred method is to search directly for the instrument.
+
+Required MT5 sequence
+
+Confirm that the correct MT5 terminal is open.
+
+Confirm that the account is authenticated.
+
+Locate the symbol search field.
+
+If necessary, open the appropriate Quotes/Symbols interface to reveal the search field.
+
+Enter the requested instrument name directly.
+
+Wait for matching results to load.
+
+Find the exact instrument or an approved broker-specific alias.
+
+Select the matching result.
+
+Wait until the requested instrument is actually loaded on the chart.
+
+Verify the active chart symbol.
+
+Locate and open New Order.
+
+For example, if the signal requests XAUUSD, the broker may display XAUUSD, XAUUSD.s, XAUUSD.ecn or another broker-specific symbol.
+
+Use the existing verified alias and broker symbol-resolution mechanisms.
+
+Do not simply select the first result containing the requested text.
+
+Do not silently substitute a different instrument.
+
+Symbol search requirements
+
+Use the existing semantic DOM discovery helpers.
+
+Identify fields using actual visible and accessible attributes, including appropriate combinations of:
+
+Input placeholder
+
+Accessible label
+
+Input type
+
+Visible associated labels
+
+Terminal-specific search controls
+
+Do not rely on fixed screen coordinates.
+
+Do not assume every MT5 broker uses identical search field markup.
+
+Do not require the user to navigate account-type menus or groups when direct search is available.
+
+If the search field cannot be located, report a useful diagnostic explaining what was visible and what was missing.
+
+Do not report that a symbol does not exist merely because the script failed to find a search field.
+
+PART 5 — MT5 NEW ORDER AND TRADE EXECUTION
+
+Once the matching symbol has been selected, the next task is to open its order ticket.
+
+The expected sequence is:
+
+Symbol is selected.
+
+Its chart is loaded.
+
+Locate New Order or the equivalent Show Trade Form control.
+
+Open the order parameters window.
+
+Wait until the actual order form is visible and ready.
+
+Verify that its instrument corresponds to the selected symbol.
+
+Populate the required order fields.
+
+Verify the parameters.
+
+Submit the authorized trade exactly once.
+
+Wait for the broker's actual response.
+
+Dismiss the result window.
+
+Confirm that the order/result window has closed.
+
+New Order control discovery
+
+The terminal may expose New Order as:
+
+A visible button.
+
+A labelled toolbar control.
+
+A control with an accessible title.
+
+A menu option.
+
+The Show Trade Form (F9) shortcut.
+
+Use actual DOM evidence and semantic labels.
+
+Do not use arbitrary coordinates or assume that an icon is always at a particular position.
+
+If the control is an icon without text, inspect its title, accessible label, parent element, role and surrounding terminal structure.
+
+Use F9 as a fallback only when the terminal and current state support it.
+
+Do not click chart drawing tools, chart settings, or unrelated toolbar controls.
+
+Order parameters
+
+The order form may contain:
+
+Symbol
+
+Volume
+
+Stop Loss
+
+Take Profit
+
+Comment
+
+Order/execution type
+
+Buy or Sell submission controls
+
+Use existing signal fields and existing models to populate the parameters.
+
+Do not break the existing trade signal format.
+
+If the existing signal model supports market, limit or stop orders, map the requested type to the terminal's actual dropdown options.
+
+For a market signal, verify that the form is set to the appropriate market execution mode.
+
+For a pending order, verify the exact pending order type and required entry parameters before submitting.
+
+If the current signal format does not carry the information needed for pending orders, do not invent an entry price or silently turn the request into a market trade. Keep existing market-order behaviour backward compatible and report what additional signal data would be required.
+
+Never assume the dropdown is automatically set to the correct mode.
+
+Form verification
+
+Before submitting, verify:
+
+Correct symbol.
+
+Correct direction.
+
+Correct volume.
+
+Correct Stop Loss when supplied.
+
+Correct Take Profit when supplied.
+
+Correct comment when supplied.
+
+Correct execution type.
+
+Required fields are present.
+
+Submit button is visible and enabled.
+
+Never force-enable a disabled broker button.
+
+Never submit if the symbol or order parameters cannot be verified.
+
+PART 6 — MT4 SYMBOL DISCOVERY AND MARKET WATCH
+
+MT4 must have a separate workflow.
+
+Do not reuse MT5's Search symbol routine as an MT4 fallback.
+
+MT4 relies on its desktop-style Market Watch panel and its context menu.
+
+First: ensure Market Watch is visible
+
+After connecting to MT4:
+
+Verify the terminal is authenticated.
+
+Locate the Market Watch panel.
+
+If Market Watch is hidden, open it through the terminal's actual desktop menu or supported terminal shortcut.
+
+Wait until the panel is visible.
+
+Confirm that its symbol rows can be inspected.
+
+Do not immediately declare Market Watch missing without first checking whether it is hidden or whether the terminal has rendered it using a different layout.
+
+The desktop viewport correction is important here because the mobile layout may arrange or hide terminal panels differently.
+
+Second: check whether the requested symbol is already present
+
+Inspect the actual Market Watch symbol rows.
+
+If the requested symbol already exists, do not unnecessarily run Show All.
+
+Proceed to the symbol's context menu.
+
+Third: Show All if the requested symbol is missing
+
+This is particularly important.
+
+The Show All command is not necessarily present in the DOM all the time.
+
+It appears in the context menu after right-clicking inside Market Watch.
+
+Therefore, the automation must follow this exact procedure:
+
+Identify the actual visible Market Watch panel.
+
+Right-click inside that panel.
+
+Dispatch an appropriate context-menu interaction to the actual panel element, using its real DOM position and dimensions.
+
+Wait for the terminal's context menu to appear.
+
+Inspect the newly rendered menu.
+
+Find the actual Show All menu item.
+
+Click Show All.
+
+Wait for the available symbols to populate.
+
+Reinspect Market Watch.
+
+Locate the requested symbol.
+
+Do not search the entire page for Show All before opening the context menu.
+
+Do not assume Show All will already exist in the DOM.
+
+Do not use a hard-coded menu item index such as nth-child(7).
+
+Use the actual visible menu label and the context menu opened from Market Watch.
+
+If the menu contains both Show All and Symbols..., prioritise Show All when the missing-symbol workflow calls for it.
+
+Do not unnecessarily open the Symbols dialog and navigate groups when Show All can expose the required instrument directly.
+
+Fourth: right-click the requested symbol
+
+Once the requested instrument is visible:
+
+Identify the exact symbol row.
+
+Right-click that particular row.
+
+Wait for its context menu.
+
+Locate New Order.
+
+Click New Order.
+
+Wait for the MT4 order window to appear.
+
+Verify that the order window belongs to the requested symbol.
+
+Important correction to the current implementation:
+
+The preferred MT4 order-opening method is right-clicking the symbol row and choosing New Order.
+
+Do not simply double-click the row to open a chart and assume that it has opened a valid order ticket.
+
+Do not use the MT5 search workflow for MT4.
+
+PART 7 — MT4 ORDER PARAMETERS AND EXECUTION
+
+The MT4 order window must be inspected separately from MT5.
+
+Populate the actual visible fields for:
+
+Symbol
+
+Volume
+
+Stop Loss
+
+Take Profit
+
+Comment
+
+Order type
+
+Use the appropriate Buy by Market or Sell by Market control for market orders.
+
+For pending orders, inspect the actual dropdown and supported options. Set the requested order type only when the signal contains sufficient information to submit a valid order.
+
+Before submitting, verify the selected symbol and all required values.
+
+Never force-enable disabled controls.
+
+Never submit through an unrelated Buy/Sell control elsewhere on the page.
+
+The selected order ticket must be associated with the current requested instrument.
+
+PART 8 — STRICT ORDER RESULT AND WINDOW CLEANUP
+
+THIS IS ONE OF THE MOST IMPORTANT REQUIREMENTS IN THE ENTIRE PROJECT.
+
+The automation must never leave an order parameters window or execution-result window blocking the terminal after a trade attempt.
+
+This must be guaranteed for MT4 and MT5.
+
+The terminal's order form is a blocking interface. While it is open, the automation may be unable to search for another symbol, interact with Market Watch, right-click a row or open another order.
+
+A click on Buy or Sell is not proof that a trade was successful.
+
+The broker needs time to process the request and return its actual response.
+
+Required sequence after every submission
+
+Submit the order exactly once.
+
+Enter a processing/waiting state.
+
+Poll the terminal for the actual broker response.
+
+Detect a successful execution, a definitive rejection or an unknown outcome.
+
+Record the result.
+
+Locate the result window or notification.
+
+Click its actual OK button when present.
+
+Wait for the dismissal to complete.
+
+Verify that the result window is no longer visible.
+
+Verify that any blocking order form has been closed or safely dismissed.
+
+Confirm that the terminal is ready for another order.
+
+A short delay after clicking OK is not sufficient proof that the dialog has disappeared. Confirm its absence through the DOM.
+
+Success response
+
+For a successful trade:
+
+Identify the broker's completion/result message.
+
+Record the execution result.
+
+Find the corresponding OK button inside the correct result dialog.
+
+Click OK.
+
+Wait for the result dialog to disappear.
+
+Verify that the terminal is interactive again.
+
+Continue to the next authorized order if required.
+
+Rejected trade
+
+Examples include:
+
+Not Enough Money.
+
+Off Quotes.
+
+Invalid Volume.
+
+Trading Disabled.
+
+Market Closed.
+
+Invalid Stop Loss.
+
+Invalid Take Profit.
+
+Other broker rejection messages.
+
+For a rejected trade:
+
+Capture the actual broker error.
+
+Report it accurately.
+
+Dismiss the broker's result window.
+
+If an order-entry form remains open, close that form using its own safe close control.
+
+Verify the terminal is no longer blocked.
+
+Do not leave a failed trade's dialog open.
+
+Preserve the application's existing business policy for stopping a signal after a definitive rejection. Do not silently alter whether remaining orders in that signal should execute.
+
+The mandatory requirement is that cleanup is performed regardless of whether the trade succeeded or failed.
+
+Unknown outcome / timeout
+
+If the broker does not provide a conclusive result:
+
+Do not assume success.
+
+Do not blindly resubmit the order.
+
+Do not issue an automatic duplicate trade.
+
+Continue checking the broker state for a bounded period.
+
+Record the result as UNKNOWN if confirmation remains unavailable.
+
+Perform safe cleanup of the order/result UI where possible.
+
+If the terminal cannot be confirmed to be clear, mark it as blocked and prevent new trade submissions until the condition is resolved.
+
+Do not close an unrelated position, pending order, history item or trading panel during cleanup.
+
+Safe dialog identification
+
+Scope every close operation to the actual order or result dialog.
+
+Use the existing helpers where suitable, including:
+
+findScopedResultOkButton()
+
+dismissTradeResult()
+
+findStaleOrderEntryCloseButton()
+
+hasOpenOrderOrResultDialog()
+
+clearStaleDialogsBeforeNewSignal()
+
+Improve them if required.
+
+Never click a generic Close button merely because it exists on the page.
+
+Never click Close Position, Close All, Delete or Modify while cleaning up an order dialog.
+
+If OK is unavailable, inspect the actual dialog's X, Close, Done or other safe dismissal controls.
+
+Do not interact with the open positions table as part of dialog cleanup.
+
+PART 9 — MULTIPLE TRADES PER SIGNAL
+
+The application supports multiple trades in one signal through its existing trade count.
+
+This must work sequentially.
+
+For example, when a signal requests four trades:
+
+TRADE 1:
+
+Open New Order.
+
+Configure parameters.
+
+Submit once.
+
+Wait for the broker's response.
+
+Capture the result.
+
+Close the result/order window.
+
+Verify that the window has disappeared.
+
+TRADE 2:
+
+Open a fresh New Order form.
+
+Configure parameters.
+
+Submit once.
+
+Wait for the response.
+
+Capture the result.
+
+Close the result/order window.
+
+Verify that the window has disappeared.
+
+Repeat this exact sequence for Trades 3 and 4.
+
+The next trade must never start while the previous blocking dialog remains open.
+
+Keep the currently selected symbol and chart where possible, so that the application does not unnecessarily repeat symbol discovery between multiple trades on the same signal.
+
+However, always open a fresh order form for the next trade.
+
+Use a serial execution mechanism. Do not fire multiple orders concurrently.
+
+The current trade count and confirmed trade count must be reported correctly.
+
+If the existing policy terminates the remaining trades after a definitive rejection, preserve that behaviour.
+
+Regardless of how the sequence ends, clean up the order/result interface.
+
+PART 10 — STRICT PRE-EXECUTION CLEANUP FOR EVERY NEW SIGNAL
+
+Before executing every incoming signal, inspect the terminal state.
+
+The application must determine whether:
+
+A previous order-entry form is still open.
+
+A previous execution-result dialog is still open.
+
+A broker rejection popup is still open.
+
+A previous execution is still processing.
+
+The terminal is ready for new interactions.
+
+If a previous result dialog is present, dismiss it safely.
+
+If a stale order-entry dialog is present, close that specific dialog safely.
+
+Wait for the terminal to confirm that the blocking interface has disappeared.
+
+Only then proceed to symbol discovery.
+
+If cleanup fails:
+
+Do not try to search for another symbol.
+
+Do not click New Order.
+
+Do not submit a trade.
+
+Report that the previous terminal dialog could not be cleared.
+
+Keep the terminal in a blocked/needs-attention state.
+
+This prevents a previous failed or incomplete trade from interfering with the next signal.
+
+Do not use cleanup to close open trading positions.
+
+PART 11 — TRADE EXECUTION STATE MANAGEMENT
+
+Integrate all new behaviour with the existing BTECH execution system and OverlayStateBus.
+
+Keep the existing user-visible execution progress, logs and trade-result communication.
+
+The progress states should accurately represent the actual sequence.
+
+Suggested phases:
+
+Opening terminal.
+
+Authenticating account.
+
+Checking previous dialogs.
+
+Searching symbol (MT5) / Checking Market Watch (MT4).
+
+Symbol found.
+
+Selecting symbol.
+
+Opening New Order.
+
+Preparing parameters.
+
+Verifying order.
+
+Submitting trade.
+
+Waiting for broker response.
+
+Recording accepted/rejected/unknown result.
+
+Closing result window.
+
+Verifying terminal is clear.
+
+Preparing next trade, if required.
+
+Completed or failed.
+
+Do not mark a phase as completed simply because a JavaScript click was dispatched.
+
+Use actual DOM state and broker response evidence.
+
+The application must distinguish:
+
+A button click.
+
+A broker request being processed.
+
+A broker accepting the order.
+
+A broker rejecting the order.
+
+An unknown result.
+
+Never present an unconfirmed trade as successfully executed.
+
+Do not introduce duplicate bridge events or leave old callbacks/timers running after an execution has finished.
+
+Preserve cancellation and timeout handling.
+
+PART 12 — BROKER COMPATIBILITY AND DOM DISCOVERY
+
+Different brokers may have different terminal arrangements.
+
+The implementation must be adaptable without creating an unnecessarily complicated universal navigation system.
+
+Use:
+
+Visible text.
+
+Accessible labels.
+
+Element titles.
+
+Semantic roles.
+
+Actual input labels.
+
+Dialog boundaries.
+
+Actual table and symbol rows.
+
+The existing deep DOM helpers.
+
+Broker-specific aliases already stored in the project.
+
+Do not rely on:
+
+Fixed coordinates.
+
+Assumed menu indexes.
+
+A universal broker symbol list.
+
+A mandatory account-type navigation path.
+
+A mandatory symbol-group navigation path.
+
+The first result containing a similar symbol.
+
+Hidden controls unrelated to the active terminal.
+
+Artificially enabling disabled controls.
+
+Where the broker's DOM is genuinely different, report exactly what the script found instead of inventing a successful action.
+
+Keep MT4 and MT5 behaviour isolated where their actual workflows differ.
+
+PART 13 — TESTING REQUIREMENTS
+
+Inspect and extend the existing test suite, especially:
+
+app/src/test/java/com/example/RoboTraderDiscoveryTest.kt
+
+The project already has DOM simulation tests for MT4 and MT5. Extend those tests instead of replacing them.
+
+Add tests for the following cases.
+
+Desktop viewport tests
+
+Desktop user-agent is applied before navigation.
+
+A page with width=device-width is corrected to the desktop layout width.
+
+A broker page that modifies its viewport after initial load is handled.
+
+The actual layout viewport is measured and verified.
+
+Desktop mode remains applied after reload.
+
+Desktop mode remains applied after authentication.
+
+Existing terminal functionality is not broken by the viewport correction.
+
+MT5 tests
+
+Direct symbol search works.
+
+Symbol search works without selecting groups.
+
+An instrument in any displayed group can be found using direct search.
+
+Different broker symbol suffixes are handled through verified aliases.
+
+The actual chart symbol is verified.
+
+New Order or Show Trade Form opens.
+
+Order parameters are populated correctly.
+
+Execution type is inspected and verified.
+
+Market Buy executes once.
+
+Market Sell executes once.
+
+A definitive broker rejection is detected.
+
+An OK result dialog is dismissed.
+
+A result dialog without OK is safely dismissed where a suitable control exists.
+
+An order ticket that remains open after an error is safely closed.
+
+A second trade cannot begin while the previous modal is still open.
+
+Multiple trades execute serially.
+
+Unknown execution outcomes do not cause duplicate submissions.
+
+MT4 tests
+
+Market Watch is detected when visible.
+
+Hidden Market Watch can be opened.
+
+An existing symbol is identified without unnecessary Show All.
+
+A missing symbol causes a right-click on the actual Market Watch panel.
+
+Show All is discovered only after the context menu appears.
+
+Show All is selected by its actual visible label, not by a hard-coded menu index.
+
+Symbol rows are re-inspected after Show All.
+
+The requested symbol is right-clicked.
+
+New Order is selected from that symbol's context menu.
+
+The automation does not depend on double-clicking the symbol row.
+
+The correct order form opens.
+
+Trade parameters are verified.
+
+Success and failure dialogs are dismissed.
+
+Multiple orders are executed sequentially.
+
+Cleanup tests
+
+These tests are essential.
+
+Create simulated terminal conditions where:
+
+A previous successful trade leaves an OK dialog.
+
+A previous rejected trade leaves an error dialog.
+
+An order-entry form remains open.
+
+A modal refuses the first dismissal attempt.
+
+A dialog disappears only after a delay.
+
+An open position has a Close Position button.
+
+An unrelated order/history row has controls.
+
+An unknown result is returned.
+
+Verify that:
+
+The correct blocking dialog is dismissed.
+
+The automation never closes an open trading position.
+
+No second order starts before terminal readiness is confirmed.
+
+A new signal cannot begin if cleanup fails.
+
+One failed trade does not leave the terminal blocked unnecessarily.
+
+Build and test
+
+Run the available project tests.
+
+Build the Android application using its existing configuration.
+
+Resolve compilation errors caused by your changes.
+
+Do not silently remove failing tests or weaken existing trading safety checks to make the test suite pass.
+
+If a particular test cannot be run in the available environment, explicitly report that limitation.
+
+PART 14 — PRESERVE EXISTING BTECH APPLICATION FUNCTIONALITY
+
+Do not redesign or unnecessarily modify the existing application.
+
+Preserve:
+
+BTECH branding.
+
+Existing colour scheme.
+
+Main navigation.
+
+Dashboard.
+
+Broker and account management.
+
+Login and authentication.
+
+Existing saved account storage.
+
+Trade-channel connection.
+
+Incoming signal processing.
+
+Floating overlay.
+
+Overlay appearance and positioning.
+
+Overlay execution progress.
+
+Logs.
+
+Stop/Skip Trades controls.
+
+Licensing and other existing application functionality.
+
+Do not rename unrelated screens.
+
+Do not redesign the Web Terminal browser controls.
+
+Do not remove existing functionality just because it is not directly involved in this correction.
+
+Limit changes to the actual desktop viewport issue, terminal discovery, order execution, result handling, cleanup, and required tests.
+
+PART 15 — IMPORTANT IMPLEMENTATION RULES
+
+Inspect the actual existing implementation before making modifications.
+
+Reuse the existing Kotlin engine, JavaScript scripts, models, callbacks and helpers.
+
+Make targeted changes rather than replacing entire source files unnecessarily.
+
+Keep MT4 and MT5 workflows separate.
+
+Do not hard-code broker-specific screen coordinates.
+
+Do not assume all brokers share the same menus or labels.
+
+Do not make account types or symbol groups mandatory.
+
+Do not report a trade successful merely because its button was clicked.
+
+Do not submit the same uncertain trade again.
+
+Always clean up blocking order/result dialogs safely.
+
+Never close an actual open trading position during cleanup.
+
+Never start another trade while a previous modal blocks the terminal.
+
+Preserve compatibility with existing saved accounts and incoming signals.
+
+Keep the application UI unchanged except where an essential diagnostic improvement is needed.
+
+Do not expose passwords, authentication tokens, API keys or other secrets in logs.
+
+Do not commit real credentials or signing keys.
+
+PART 16 — REQUIRED FINAL REPORT
+
+After implementing the changes, provide a proper implementation report.
+
+Include:
+
+A. Root causes
+
+What caused the desktop viewport problem?
+
+What caused the MT5 discovery limitations?
+
+What caused the MT4 discovery/order-opening limitations?
+
+What could leave an order/result dialog blocking the terminal?
+
+B. Files changed
+List every modified file and explain exactly what changed in it.
+
+C. Desktop viewport
+Show the actual viewport verification results and explain how desktop rendering is enforced.
+
+D. MT5 workflow
+Explain the updated symbol search, chart selection, New Order, execution and cleanup behaviour.
+
+E. MT4 workflow
+Explain the updated Market Watch, right-click, Show All, symbol right-click, New Order and cleanup behaviour.
+
+F. Multiple trades
+Explain how multiple trades are submitted sequentially and how the application confirms that each previous blocking window has been dismissed.
+
+G. Testing
+List:
+
+Tests passed.
+
+Tests failed.
+
+Tests not run.
+
+Android build result.
+
+H. Remaining limitations
+Clearly state any broker-specific behaviour that still requires testing on a real terminal.
+
+I. Manual testing instructions
+Give me a practical testing sequence for MT5 and MT4, including a multiple-trade test and a deliberately rejected trade test.
+
+Do not claim that the application is fully verified on every broker simply because simulated DOM tests pass.
+
+FINAL OBJECTIVE
+
+The final implementation must make the BTECH Android application operate the embedded MetaTrader terminals as desktop browser terminals, not as mobile-responsive terminal pages.
+
+For MT5, the automation must use direct symbol search, select the instrument, open New Order, configure the ticket, submit the trade, wait for the actual broker response, dismiss the result and verify that the window has closed.
+
+For MT4, the automation must ensure Market Watch is visible, use its actual right-click context menu, select Show All when the requested symbol is missing, right-click the correct symbol and choose New Order.
+
+For both platforms, each order must be processed serially. Every success, rejection or safely resolved failure must be followed by proper dialog cleanup and confirmation that the terminal is ready before another order or signal is processed.
+
+The highest priorities are genuine desktop viewport rendering, correct MT4/MT5 workflow separation, reliable broker response detection, and strict order-window cleanup.
+
+Do not sacrifice those requirements for a shortcut or a superficial UI change.
+
+Implement the changes in the existing BTECH project now, run the available tests and build, and provide the final report.
