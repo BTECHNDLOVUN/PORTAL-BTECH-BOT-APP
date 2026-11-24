@@ -34,6 +34,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.graphics.toColorInt
 import com.example.MainActivity
 import com.example.R
+import com.example.webterminal.WebTerminalEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,6 +70,7 @@ class BtechOverlayService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var windowManager: WindowManager
 
+    private var webViewFallbackHost: FrameLayout? = null
     private var bubbleView: View? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
 
@@ -124,6 +126,7 @@ class BtechOverlayService : Service() {
         }
 
         runCatching {
+            createWebViewFallbackHost()
             createBubbleView()
             createPanelView()
             observeSnapshot()
@@ -896,9 +899,57 @@ class BtechOverlayService : Service() {
         panelView?.visibility = View.GONE
     }
 
+    private fun createWebViewFallbackHost() {
+        if (webViewFallbackHost != null) return
+        val engine = WebTerminalEngine.getInstance(applicationContext)
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val hostWidth = (1024 * density).toInt().coerceIn(1024, 2048)
+        val hostHeight = (720 * density).toInt().coerceIn(720, 1440)
+        val host = object : FrameLayout(this) {
+            override fun dispatchTouchEvent(ev: MotionEvent?): Boolean = false
+            override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
+            override fun onAttachedToWindow() {
+                super.onAttachedToWindow()
+                engine.registerServiceFallbackHost(this, this@BtechOverlayService)
+            }
+        }.apply {
+            isFocusable = false
+            isFocusableInTouchMode = false
+            alpha = 0.01f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        val params = WindowManager.LayoutParams(
+            hostWidth,
+            hostHeight,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+        webViewFallbackHost = host
+        windowManager.addView(host, params)
+        engine.registerServiceFallbackHost(host, this)
+    }
+
     private fun removeViewsSafely() {
+        webViewFallbackHost?.let { host ->
+            runCatching { WebTerminalEngine.getInstance(applicationContext).unregisterServiceFallbackHost(host) }
+            runCatching { windowManager.removeView(host) }
+        }
         bubbleView?.let { runCatching { windowManager.removeView(it) } }
         panelView?.let { runCatching { windowManager.removeView(it) } }
+        webViewFallbackHost = null
         bubbleView = null
         panelView = null
     }

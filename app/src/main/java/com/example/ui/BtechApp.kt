@@ -142,28 +142,16 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
         accentColor = accentColor,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Keep BackgroundWebViewHost persistently mounted whenever an account or WebView session exists
-            // (even while Inspect Dialog temporarily borrows the WebView) so closing Inspect transfers the
-            // WebView atomically back into an attached Window without pausing Chromium JS timers.
-            val shouldHostBackgroundWebView =
-                state.savedAccount != null ||
-                    state.isAuthBusy ||
-                    state.isSimulatingTrade ||
-                    state.isBalanceMonitorRunning ||
-                    state.showInAppFloatingOverlay ||
-                    webStatus.isLoading ||
-                    webStatus.isPageReady ||
-                    webStatus.currentUrl.isNotEmpty() ||
-                    state.showWebInspector
-            if (shouldHostBackgroundWebView) {
-                BackgroundWebViewHost(
-                    webEngine = viewModel.webEngine,
-                    modifier = Modifier
-                        .wrapContentSize(unbounded = true, align = Alignment.TopStart)
-                        .requiredSize(1024.dp, 720.dp)
-                        .alpha(0.01f),
-                )
-            }
+            // Keep BackgroundWebViewHost persistently mounted at the root Compose tree
+            // (even while Inspect Dialog temporarily borrows the WebView or during account transitions)
+            // so closing Inspect or updating account state never orphans the WebView or pauses JS timers.
+            BackgroundWebViewHost(
+                webEngine = viewModel.webEngine,
+                modifier = Modifier
+                    .wrapContentSize(unbounded = true, align = Alignment.TopStart)
+                    .requiredSize(1024.dp, 720.dp)
+                    .alpha(0.01f),
+            )
 
             Scaffold(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -512,6 +500,10 @@ private fun BackgroundWebViewHost(
             object : FrameLayout(ctx) {
                 override fun dispatchTouchEvent(ev: MotionEvent?): Boolean = false
                 override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
+                override fun onAttachedToWindow() {
+                    super.onAttachedToWindow()
+                    webEngine.registerBackgroundHost(this, context)
+                }
             }.apply {
                 isFocusable = false
                 isFocusableInTouchMode = false

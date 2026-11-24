@@ -302,6 +302,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
     private val contextWrapper = MutableContextWrapper(appContext)
     private var webView: WebView? = null
     private var backgroundHostRef: WeakReference<ViewGroup>? = null
+    private var serviceHostRef: WeakReference<ViewGroup>? = null
     private var isInspectMode: Boolean = false
     private var useSoftwareLayer = false
 
@@ -497,15 +498,16 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
             }
 
             if (wv.parent == null) {
-                val snap = _heartbeat.value.copy(
-                    webviewAlive = false,
-                    javascriptRunning = false,
-                    currentStage = "WEBVIEW_DETACHED",
-                    currentUrl = wv.url ?: _status.value.currentUrl,
-                )
-                _heartbeat.value = snap
-                onComplete?.invoke(false, snap)
-                return@post
+                if (!isInspectMode) {
+                    val activeHost = resolveActiveBackgroundHost()
+                    if (activeHost != null && activeHost.isAttachedToWindow) {
+                        attachToContainer(activeHost, activeHost.context)
+                    } else {
+                        ensureDesktopLayoutIfDetached(wv)
+                    }
+                } else {
+                    ensureDesktopLayoutIfDetached(wv)
+                }
             }
 
             var settled = false
@@ -515,7 +517,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 val stale = _heartbeat.value.copy(
                     webviewAlive = webView != null && webView?.parent != null,
                     javascriptRunning = false,
-                    currentStage = "JS_UNRESPONSIVE",
+                    currentStage = if (webView?.parent == null) "WEBVIEW_DETACHED" else "JS_UNRESPONSIVE",
                     currentUrl = wv.url ?: _status.value.currentUrl,
                 )
                 _heartbeat.value = stale
@@ -599,6 +601,20 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         }
     }
 
+    @androidx.annotation.VisibleForTesting
+    internal fun resolveCurrentExecutionStep(
+        defaultStep: ExecutionStepId = ExecutionStepId.OPENING_TERMINAL,
+    ): ExecutionStepId {
+        val steps = OverlayStateBus.snapshot.value.executionSteps
+        val active = steps.lastOrNull { it.status == ExecutionStepStatus.ACTIVE }?.id
+        if (active != null) return active
+        val latestProgressed = steps.lastOrNull()?.id
+        if (latestProgressed != null && latestProgressed != ExecutionStepId.SIGNAL_RECEIVED) {
+            return latestProgressed
+        }
+        return defaultStep
+    }
+
     private fun resetPhaseStallWatchdog(runId: Long = currentRunId) {
         phaseStallRunnable?.let { mainHandler.removeCallbacks(it) }
         phaseStallRunnable = null
@@ -608,10 +624,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
             if (pendingTradeDoneCallback == null || pendingAuthCallback != null || runId != currentRunId) return@Runnable
             val account = activeTradeAccount
             val signal = activeTradeSignal
-            val activeStepId = OverlayStateBus.snapshot.value.executionSteps
-                .lastOrNull { it.status == ExecutionStepStatus.ACTIVE }
-                ?.id
-                ?: ExecutionStepId.OPENING_TERMINAL
+            val activeStepId = resolveCurrentExecutionStep(ExecutionStepId.OPENING_TERMINAL)
             val platformLabel = (signal?.platform ?: account?.platform)?.label ?: "Web"
             val symbolName = signal?.symbol ?: "symbol"
 
@@ -657,11 +670,19 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         platformLabel: String,
     ) {
         if (pendingTradeDoneCallback == null || runId != currentRunId) return
+        if (!isInspectMode && webView != null && webView?.parent == null) {
+            val activeHost = resolveActiveBackgroundHost()
+            if (activeHost != null && activeHost.isAttachedToWindow) {
+                attachToContainer(activeHost, activeHost.context)
+            }
+        }
         val curUrl = webView?.url ?: _status.value.currentUrl
+        val resolvedStep = resolveCurrentExecutionStep(activeStepId)
+        val attachedOrJsRunning = (webView?.parent != null) || jsResponded || hb.javascriptRunning
         val (category, msg) = classifyWatchdogStall(
-            activeStepId = activeStepId,
+            activeStepId = resolvedStep,
             webViewPresent = webView != null,
-            webViewAttached = webView?.parent != null,
+            webViewAttached = attachedOrJsRunning,
             isLoading = _status.value.isLoading,
             currentUrl = curUrl,
             jsResponded = jsResponded,
@@ -671,10 +692,10 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         )
         lastWatchdogFailureCategory = category
         runCatching { webView?.evaluateJavascript(WebTerminalScripts.buildCancelTradeScript(runId), null) }
-        if (category == WatchdogFailureCategory.BROKER_RESPONSE_PENDING || activeStepId == ExecutionStepId.EXECUTING_TRADE) {
+        if (category == WatchdogFailureCategory.BROKER_RESPONSE_PENDING || resolvedStep == ExecutionStepId.EXECUTING_TRADE) {
             finishTradeWithUnknown(msg)
         } else {
-            finishTradeWithError("[$category] $msg", failedStep = activeStepId)
+            finishTradeWithError("[$category] $msg", failedStep = resolvedStep)
         }
     }
 
@@ -950,11 +971,25 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun obtainWebView(hostContext: Context? = null): WebView {
-        if (hostContext != null) {
+        val wv = obtainOrCreateWebView(hostContext)
+        if (!isInspectMode && (wv.parent == null || !wv.isAttachedToWindow)) {
+            val bg = resolveActiveBackgroundHost()
+            if (bg != null && bg.isAttachedToWindow && wv.parent !== bg) {
+                attachInternal(wv, bg, bg.context)
+            }
+        }
+        return wv
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun obtainOrCreateWebView(hostContext: Context? = null): WebView {
+        if (hostContext != null && hostContext !== contextWrapper) {
             contextWrapper.baseContext = hostContext
         }
         val existing = webView
-        if (existing != null) return existing
+        if (existing != null) {
+            return existing
+        }
 
         if (BuildConfig.DEBUG) {
             runCatching { WebView.setWebContentsDebuggingEnabled(true) }
@@ -1007,6 +1042,13 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                     }
                     override fun onViewDetachedFromWindow(v: View) {
                         contextWrapper.baseContext = appContext
+                        if (!isInspectMode) {
+                            mainHandler.post {
+                                if (!isInspectMode) {
+                                    ensureAttachedToBackgroundHost()
+                                }
+                            }
+                        }
                     }
                 },
             )
@@ -1210,9 +1252,9 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         webView = created
         configureDesktopViewportForWebView(created)
         if (!isInspectMode) {
-            val bg = backgroundHostRef?.get()
+            val bg = resolveActiveBackgroundHost()
             if (bg != null && bg.isAttachedToWindow) {
-                attachToContainer(bg, bg.context)
+                attachInternal(created, bg, bg.context)
             }
         }
         return created
@@ -1280,11 +1322,24 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         }
     }
 
+    private fun resolveActiveBackgroundHost(): ViewGroup? {
+        val actHost = backgroundHostRef?.get()
+        if (actHost != null && actHost.isAttachedToWindow) return actHost
+        val svcHost = serviceHostRef?.get()
+        if (svcHost != null && svcHost.isAttachedToWindow) return svcHost
+        return actHost ?: svcHost
+    }
+
     fun setInspectMode(inspecting: Boolean) {
         val action = {
             isInspectMode = inspecting
             if (!inspecting) {
                 ensureAttachedToBackgroundHost()
+                mainHandler.post {
+                    if (!isInspectMode) {
+                        ensureAttachedToBackgroundHost()
+                    }
+                }
             }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -1299,6 +1354,9 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         val wv = webView ?: return
         if (!isInspectMode && wv.parent !== container) {
             attachToContainer(container, hostContext)
+            if (!container.isAttachedToWindow) {
+                container.post { ensureAttachedToBackgroundHost() }
+            }
         } else if (wv.parent === container) {
             runCatching {
                 wv.onResume()
@@ -1313,18 +1371,58 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         }
         val wv = webView ?: return
         if (wv.parent === expectedParent) {
-            expectedParent.removeView(wv)
-            contextWrapper.baseContext = appContext
+            val svc = serviceHostRef?.get()
+            if (!isInspectMode && svc != null && svc !== expectedParent && svc.isAttachedToWindow) {
+                attachToContainer(svc, svc.context)
+            } else {
+                expectedParent.removeView(wv)
+                contextWrapper.baseContext = appContext
+            }
+        }
+    }
+
+    fun registerServiceFallbackHost(container: ViewGroup, hostContext: Context) {
+        serviceHostRef = WeakReference(container)
+        val wv = webView ?: return
+        val parentView = wv.parent as? View
+        val currentlyAttached = parentView != null && parentView.isAttachedToWindow
+        if (!isInspectMode && !currentlyAttached && wv.parent !== container) {
+            if (container.isAttachedToWindow) {
+                attachToContainer(container, hostContext)
+            } else {
+                container.post { ensureAttachedToBackgroundHost() }
+            }
+        }
+    }
+
+    fun unregisterServiceFallbackHost(expectedParent: ViewGroup) {
+        if (serviceHostRef?.get() === expectedParent) {
+            serviceHostRef = null
+        }
+        val wv = webView ?: return
+        if (wv.parent === expectedParent) {
+            val bg = backgroundHostRef?.get()
+            if (!isInspectMode && bg != null && bg !== expectedParent && bg.isAttachedToWindow) {
+                attachToContainer(bg, bg.context)
+            } else {
+                expectedParent.removeView(wv)
+                contextWrapper.baseContext = appContext
+            }
         }
     }
 
     fun ensureAttachedToBackgroundHost() {
         val action = {
             if (!isInspectMode) {
-                val bg = backgroundHostRef?.get()
+                val bg = resolveActiveBackgroundHost()
                 val wv = webView
                 if (wv != null && bg != null && bg.isAttachedToWindow && wv.parent !== bg) {
                     attachToContainer(bg, bg.context)
+                } else if (wv != null) {
+                    runCatching {
+                        wv.onResume()
+                        wv.resumeTimers()
+                    }
                 }
             }
         }
@@ -1336,7 +1434,14 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
     }
 
     fun attachToContainer(container: ViewGroup, hostContext: Context) {
-        val wv = obtainWebView(hostContext)
+        val wv = obtainOrCreateWebView(hostContext)
+        attachInternal(wv, container, hostContext)
+    }
+
+    private fun attachInternal(wv: WebView, container: ViewGroup, hostContext: Context) {
+        if (hostContext !== contextWrapper) {
+            contextWrapper.baseContext = hostContext
+        }
         val oldParent = wv.parent as? ViewGroup
         if (oldParent != null && oldParent !== container) {
             oldParent.removeView(wv)
@@ -1363,7 +1468,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
     fun detachIfParent(expectedParent: ViewGroup) {
         val wv = webView ?: return
         if (wv.parent === expectedParent) {
-            val bg = backgroundHostRef?.get()
+            val bg = resolveActiveBackgroundHost()
             if (!isInspectMode && bg != null && bg !== expectedParent && bg.isAttachedToWindow) {
                 // Atomic reparent straight back to persistent background host — never orphan WebView
                 attachToContainer(bg, bg.context)
@@ -1377,7 +1482,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
     fun detachFromParent() {
         val detachAction = {
             if (!isInspectMode) {
-                val bg = backgroundHostRef?.get()
+                val bg = resolveActiveBackgroundHost()
                 val wv = webView
                 if (wv != null && bg != null && bg.isAttachedToWindow) {
                     attachToContainer(bg, bg.context)
@@ -1395,7 +1500,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
     }
 
     private fun ensureDesktopLayoutIfDetached(wv: WebView) {
-        val bg = backgroundHostRef?.get()
+        val bg = resolveActiveBackgroundHost()
         if (!isInspectMode && wv.parent == null && bg != null && bg.isAttachedToWindow) {
             attachToContainer(bg, bg.context)
         }
@@ -1837,13 +1942,11 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
 
             val timeout = Runnable {
                 if (pendingTradeDoneCallback != null && runId == currentRunId) {
-                    val activeStep = OverlayStateBus.snapshot.value.executionSteps
-                        .lastOrNull { it.status == ExecutionStepStatus.ACTIVE }
-                        ?.id
-                        ?: ExecutionStepId.OPENING_TERMINAL
+                    val activeStep = resolveCurrentExecutionStep(ExecutionStepId.OPENING_TERMINAL)
                     probeHeartbeatNow(effectivePlatform.label) { jsResponded, hb ->
                         if (pendingTradeDoneCallback != null && runId == currentRunId) {
-                            handleWatchdogExpiry(runId, activeStep, jsResponded, hb, signal.symbol, effectivePlatform.label)
+                            val stepAtExpiry = resolveCurrentExecutionStep(activeStep)
+                            handleWatchdogExpiry(runId, stepAtExpiry, jsResponded, hb, signal.symbol, effectivePlatform.label)
                         }
                     }
                 }
@@ -2075,7 +2178,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
-                    status = ExecutionStepStatus.COMPLETED,
+                    status = if (idx >= total) ExecutionStepStatus.COMPLETED else ExecutionStepStatus.ACTIVE,
                     label = lbl,
                     progress = (0.82f + frac).coerceAtMost(0.98f),
                     detail = detail,
@@ -2089,7 +2192,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
-                    status = ExecutionStepStatus.COMPLETED,
+                    status = if (idx >= total) ExecutionStepStatus.COMPLETED else ExecutionStepStatus.ACTIVE,
                     label = lbl,
                     progress = 0.90f,
                     detail = detail,
@@ -2241,13 +2344,11 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                     val effectivePlatform = signal.platform ?: account.platform
                     val timeout = Runnable {
                         if (pendingTradeDoneCallback != null && runId == currentRunId) {
-                            val activeStep = OverlayStateBus.snapshot.value.executionSteps
-                                .lastOrNull { it.status == ExecutionStepStatus.ACTIVE }
-                                ?.id
-                                ?: ExecutionStepId.EXECUTING_TRADE
+                            val activeStep = resolveCurrentExecutionStep(ExecutionStepId.EXECUTING_TRADE)
                             probeHeartbeatNow(effectivePlatform.label) { jsResponded, hb ->
                                 if (pendingTradeDoneCallback != null && runId == currentRunId) {
-                                    handleWatchdogExpiry(runId, activeStep, jsResponded, hb, signal.symbol, effectivePlatform.label)
+                                    val stepAtExpiry = resolveCurrentExecutionStep(activeStep)
+                                    handleWatchdogExpiry(runId, stepAtExpiry, jsResponded, hb, signal.symbol, effectivePlatform.label)
                                 }
                             }
                         }

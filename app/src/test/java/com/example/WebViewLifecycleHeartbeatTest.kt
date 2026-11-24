@@ -621,4 +621,65 @@ class WebViewLifecycleHeartbeatTest {
 
         controller.pause().stop().destroy()
     }
+
+    // -------------------------------------------------------------------------
+    // Test H: Mid-Batch Watchdog Attribution, Self-Healing Reattach, & Service Host Fallback
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `Test H - mid-batch watchdog attributes EXECUTING_TRADE not OPENING_TERMINAL and service fallback host keeps WebView attached`() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        val engine = WebTerminalEngine.getInstance(activity)
+
+        val root = FrameLayout(activity)
+        val bgHost = FrameLayout(activity)
+        val serviceHost = FrameLayout(activity)
+        val tempOrphanParent = FrameLayout(activity)
+        root.addView(bgHost)
+        root.addView(serviceHost)
+        activity.setContentView(root)
+
+        val wv = engine.obtainWebView(activity)
+        engine.registerBackgroundHost(bgHost, activity)
+        assertSame(bgHost, wv.parent)
+
+        // 1. Mid-batch progress: after Trade 4/5 confirmed & dialog cleared, resolveCurrentExecutionStep must NEVER fall back to OPENING_TERMINAL
+        val runId = engine.startSyntheticTradeRunForTest(testAccount(), testSignal("GBPCAD", count = 5))
+        engine.dispatchTradePhaseForTest(runId, "TERMINAL_OK", "Confirmed active MT5 session")
+        engine.dispatchTradePhaseForTest(runId, "AUTH_OK", "Account authenticated")
+        engine.dispatchTradePhaseForTest(runId, "SYMBOL_FOUND", "Symbol found: GBPCAD")
+        engine.dispatchTradePhaseForTest(runId, "SYMBOL_SELECTED", "Selected GBPCAD")
+        engine.dispatchTradePhaseForTest(runId, "PREPARE", "Preparing trade 4/5")
+        engine.dispatchTradePhaseForTest(runId, "TRADE_SUBMIT:4:5", "Submitting 4/5")
+        engine.dispatchTradePhaseForTest(runId, "TRADE_CONFIRMED:4:5", "Trade 4/5 confirmed")
+        assertEquals(ExecutionStepId.EXECUTING_TRADE, engine.resolveCurrentExecutionStep())
+        engine.dispatchTradePhaseForTest(runId, "TERMINAL_CLEAR:4:5", "Waiting before 5/5")
+        assertEquals(ExecutionStepId.EXECUTING_TRADE, engine.resolveCurrentExecutionStep())
+
+        // Finish trade cleanly
+        engine.dispatchTradePhaseForTest(runId, "TRADE_CONFIRMED:5:5", "Trade 5/5 confirmed")
+        engine.dispatchTradeLogForTest(runId, "All 5/5 confirmed", isError = false, isDone = true)
+
+        // 2. Service fallback host keeps WebView attached when Activity unregisters its background host
+        engine.registerServiceFallbackHost(serviceHost, activity)
+        engine.unregisterBackgroundHost(bgHost)
+        assertSame("WebView must move atomically to service fallback host when Activity host unregisters", serviceHost, wv.parent)
+
+        // When Activity background host returns, WebView moves back seamlessly on obtainWebView()
+        engine.unregisterServiceFallbackHost(serviceHost)
+        assertEquals(null, wv.parent)
+        engine.registerBackgroundHost(bgHost, activity)
+        assertSame(bgHost, engine.obtainWebView(activity).parent)
+
+        // 3. Self-healing reattach if WebView was transiently orphaned outside Inspect mode
+        tempOrphanParent.addView(wv.also { (it.parent as? android.view.ViewGroup)?.removeView(it) })
+        tempOrphanParent.removeView(wv)
+        assertEquals(null, wv.parent)
+        val healed = engine.obtainWebView(activity)
+        assertSame("obtainWebView must reattach orphaned WebView to active host", bgHost, healed.parent)
+
+        engine.unregisterBackgroundHost(bgHost)
+        controller.pause().stop().destroy()
+    }
 }

@@ -455,6 +455,18 @@ object WebTerminalScripts {
           return 'NOT_FOUND';
         }
 
+        function looksLikeBrokerInstrumentToken(clean) {
+          const v = String(clean || '').trim();
+          if (!v || v.length < 3 || v.length > 18) return false;
+          if (/^\d+(?:\.\d+)?$/.test(v)) return false;
+          if (!/^[A-Za-z#][A-Za-z0-9._#-]{1,17}$/.test(v)) return false;
+          if (!/[A-Za-z]{2,}/.test(v)) return false;
+          return /^(?:[A-Z]{6}(?:[._#-][A-Za-z0-9]+|[mc])?|XAU|XAG|GOLD|SILVER|BTC|ETH|LTC|XRP|SOL|US30|US500|NAS100|USTEC|DE30|DE40|GER40|UK100|SPX500|JP225|USOIL|UKOIL|XTIUSD|XBRUSD|XNGUSD)/i.test(v) ||
+            (/[._#][A-Za-z0-9]{1,6}$/.test(v) && /^[A-Z0-9]{2,10}/.test(v)) ||
+            (/^#[A-Za-z0-9._-]{2,14}$/.test(v)) ||
+            (/^[A-Z]{2,6}\d{2,4}$/.test(v));
+        }
+
         function isCategoryFolderRowText(rawText) {
           const text = String(rawText || '').replace(/\s+/g, ' ').trim();
           if (!text) return false;
@@ -847,45 +859,50 @@ object WebTerminalScripts {
           return { state: 'UNKNOWN', symbol: '' };
         }
 
-        function openMT4ContextMenu(target) {
-          if (!target && typeof document === 'undefined') return false;
+        function dispatchMT4RightClick(target, overrideX, overrideY) {
+          if (!target) return false;
           try {
-            const panelTarget = isRenderedVisible(target)
-              ? target
-              : (findMarketWatchPanel() || target);
-            if (!panelTarget) return false;
-            try { if (typeof panelTarget.scrollIntoView === 'function') panelTarget.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+            try { if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+            const view = getViewFor(target);
+            const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+            const cx = (typeof overrideX === 'number' && isFinite(overrideX))
+              ? overrideX
+              : (rect ? (rect.left + Math.max(6, Math.min(rect.width / 2, 48))) : 0);
+            const cy = (typeof overrideY === 'number' && isFinite(overrideY))
+              ? overrideY
+              : (rect
+                  ? (rect.height > 80
+                      ? (rect.top + Math.min(rect.height / 2, 120))
+                      : (rect.top + Math.max(6, Math.min(rect.height / 2, 24))))
+                  : 0);
 
-            const view = getViewFor(panelTarget);
-            const rect = panelTarget.getBoundingClientRect ? panelTarget.getBoundingClientRect() : null;
-            const cx = rect ? (rect.left + Math.max(8, rect.width / 2)) : 0;
-            const cy = rect ? (rect.top + Math.max(8, rect.height / 2)) : 0;
-
-            panelTarget.dispatchEvent(
+            target.dispatchEvent(
               new view.MouseEvent('mousedown', {
                 bubbles: true,
-                cancelable: false,
+                cancelable: true,
                 composed: true,
                 view: view,
                 button: 2,
                 buttons: 2,
+                which: 3,
                 clientX: cx,
                 clientY: cy
               })
             );
-            panelTarget.dispatchEvent(
+            target.dispatchEvent(
               new view.MouseEvent('mouseup', {
                 bubbles: true,
-                cancelable: false,
+                cancelable: true,
                 composed: true,
                 view: view,
                 button: 2,
                 buttons: 0,
+                which: 3,
                 clientX: cx,
                 clientY: cy
               })
             );
-            panelTarget.dispatchEvent(
+            target.dispatchEvent(
               new view.MouseEvent('contextmenu', {
                 bubbles: true,
                 cancelable: true,
@@ -893,6 +910,7 @@ object WebTerminalScripts {
                 view: view,
                 button: 2,
                 buttons: 0,
+                which: 3,
                 clientX: cx,
                 clientY: cy
               })
@@ -903,60 +921,208 @@ object WebTerminalScripts {
           }
         }
 
+        function openMT4ContextMenu(target) {
+          if (!target && typeof document === 'undefined') return false;
+          const panelTarget = isRenderedVisible(target)
+            ? target
+            : (findMarketWatchPanel() || target);
+          if (!panelTarget) return false;
+          return dispatchMT4RightClick(panelTarget);
+        }
+
         function openMT4RowContextMenu(rowElement) {
           if (!rowElement || !isRenderedVisible(rowElement)) return false;
+          return dispatchMT4RightClick(rowElement);
+        }
+
+        function isNonMarketWatchQuoteContext(el) {
+          if (!el || !el.closest) return false;
           try {
-            try { if (typeof rowElement.scrollIntoView === 'function') rowElement.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
-            const view = getViewFor(rowElement);
-            const rect = rowElement.getBoundingClientRect ? rowElement.getBoundingClientRect() : null;
-            const cx = rect ? (rect.left + Math.max(4, rect.width / 2)) : 0;
-            const cy = rect ? (rect.top + Math.max(4, rect.height / 2)) : 0;
-            rowElement.dispatchEvent(new view.MouseEvent('mousedown', {
-              bubbles: true, cancelable: false, composed: true, view: view, button: 2, buttons: 2, clientX: cx, clientY: cy
-            }));
-            rowElement.dispatchEvent(new view.MouseEvent('mouseup', {
-              bubbles: true, cancelable: false, composed: true, view: view, button: 2, buttons: 0, clientX: cx, clientY: cy
-            }));
-            rowElement.dispatchEvent(new view.MouseEvent('contextmenu', {
-              bubbles: true, cancelable: true, composed: true, view: view, button: 2, buttons: 0, clientX: cx, clientY: cy
-            }));
-            return true;
+            return !!el.closest("[role='dialog'], [role='alertdialog'], .trade-form, [class*='order-dialog' i], [class*='order-ticket' i], [class*='position' i], [class*='positions' i], [class*='history' i], [class*='deal' i], [class*='orders' i], [class*='toolbox' i], [class*='journal' i]");
           } catch (_) {
             return false;
           }
         }
 
+        function findVisibleMarketWatchSymbolRows(marketWatchPanel) {
+          if (!marketWatchPanel) return [];
+          const rows = [];
+          const seen = new Set();
+          function collectFrom(selector, requireInstrumentShape) {
+            const trs = deepAll(selector, marketWatchPanel);
+            for (let i = 0; i < trs.length; i++) {
+              const tr = trs[i];
+              if (!isRenderedVisible(tr) || seen.has(tr) || isInsideMenuContainer(tr) || isNonMarketWatchQuoteContext(tr)) continue;
+              if (requireInstrumentShape && tr.children && tr.children.length > 6) continue;
+              const firstCell = (tr.getElementsByTagName && tr.getElementsByTagName('td')[0]) ||
+                (tr.querySelector && tr.querySelector("[role='gridcell'], [role='cell'], [class*='symbol' i]"));
+              const raw = String((firstCell ? firstCell.textContent : tr.textContent) || '').trim();
+              if (!raw || raw.length > 90) continue;
+              const fullRaw = String(tr.textContent || '').replace(/\s+/g, ' ').trim();
+              if (/#\d{4,}/.test(fullRaw) || /\bclose\s+position\b/i.test(fullRaw)) continue;
+              if (/\b(?:buy|sell)\s+\d+(?:\.\d+)?\b/i.test(fullRaw)) continue;
+              const lower = raw.toLowerCase();
+              if (lower.startsWith('symbol') || lower === 'bid' || lower === 'ask') continue;
+              const ds = (tr.getAttribute && (tr.getAttribute('data-symbol') || tr.getAttribute('data-name'))) || '';
+              const tok = String(ds || '').trim() || extractPreservedCaseTokens(raw)[0] || '';
+              if (!tok || tok.length < 3 || /^(?:symbol|bid|ask|high|low|time|spread)$/i.test(tok)) continue;
+              if (requireInstrumentShape && !looksLikeBrokerInstrumentToken(tok)) continue;
+              seen.add(tr);
+              rows.push(tr);
+            }
+          }
+          collectFrom("tr, [role='row'], [data-symbol]", false);
+          if (rows.length < 2) {
+            collectFrom("li, [class*='row' i], [class*='quote' i], [class*='symbol' i]", true);
+          }
+          return rows;
+        }
+
+        function isInsideMenuContainer(el) {
+          if (!el || !el.closest) return false;
+          try {
+            if (el.closest("[role='tablist'], [role='tab'], .tabs, [class*='tab-bar' i]")) return false;
+            return !!el.closest(".page-menu, .mt4-ctx-menu, [role='menu'], [role='menuitem'], [class*='context-menu' i], [class*='ctx-menu' i], [class*='popup-menu' i], [class*='dropdown' i]");
+          } catch (_) {
+            return false;
+          }
+        }
+
+        function resolveMT4MenuItemTarget(node) {
+          if (!node) return null;
+          if (!isInsideMenuContainer(node)) return node;
+          if (node.closest) {
+            const semantic = node.closest("[role='menuitem'], [role='menuitemcheckbox'], li, button, a, tr");
+            if (semantic && isInsideMenuContainer(semantic)) return semantic;
+            const nodeClean = (node.textContent || '').replace(/[✓✔☑•]/g, '').replace(/\s+/g, ' ').trim();
+            let cur = node;
+            for (let depth = 0; depth < 3 && cur && cur.parentElement; depth++) {
+              const p = cur.parentElement;
+              const pCls = (typeof p.className === 'string' ? p.className : '').toLowerCase();
+              if (pCls.includes('page-menu') || pCls.includes('box') || (p.getAttribute && p.getAttribute('role') === 'menu')) {
+                break;
+              }
+              if (p.children && p.children.length > 2) break;
+              const pClean = (p.textContent || '').replace(/[✓✔☑•]/g, '').replace(/\s+/g, ' ').trim();
+              if (pClean.length > 44 || (nodeClean && pClean.length > nodeClean.length + 18)) break;
+              cur = p;
+            }
+            return cur;
+          }
+          return node;
+        }
+
+        function findMT4MenuItemByLabels(labels, strictMenuOnly) {
+          const menuContainers = deepAll(".page-menu, .mt4-ctx-menu, [role='menu'], [class*='context-menu' i], [class*='ctx-menu' i], [class*='popup-menu' i]")
+            .filter(isRenderedVisible);
+          for (let lIdx = 0; lIdx < labels.length; lIdx++) {
+            const wanted = String(labels[lIdx] || '').replace(/[✓✔☑•]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!wanted) continue;
+            for (let mIdx = 0; mIdx < menuContainers.length; mIdx++) {
+              const menu = menuContainers[mIdx];
+              const nodes = deepAll("[role='menuitem'], [role='menuitemcheckbox'], li, tr, td, a, button, div, span", menu)
+                .filter(isRenderedVisible);
+              let bestMatch = null;
+              let bestLen = 999;
+              for (let nIdx = 0; nIdx < nodes.length; nIdx++) {
+                const n = nodes[nIdx];
+                if (n.closest && n.closest("[role='tablist'], [role='tab'], .tabs")) continue;
+                const clean = (n.textContent || '').replace(/[✓✔☑•]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!clean || clean.length > 48) continue;
+                const exact = clean === wanted;
+                const withShortcut = !exact && (
+                  clean.startsWith(wanted + ' ') ||
+                  clean.startsWith(wanted + '\t') ||
+                  (wanted === 'symbols' && clean === 'symbols...')
+                );
+                if (!exact && !withShortcut) continue;
+                const isLeafLike = !n.querySelector || !Array.from(n.querySelectorAll('div, span, a, li, button')).some(function(ch) {
+                  if (!isRenderedVisible(ch)) return false;
+                  const chClean = (ch.textContent || '').replace(/[✓✔☑•]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  return chClean === wanted;
+                });
+                const scoreLen = clean.length + (exact ? 0 : 10) + (isLeafLike ? 0 : 20);
+                if (scoreLen < bestLen) {
+                  bestLen = scoreLen;
+                  bestMatch = resolveMT4MenuItemTarget(n);
+                }
+              }
+              if (bestMatch) return bestMatch;
+            }
+          }
+          if (strictMenuOnly) {
+            for (let i = 0; i < labels.length; i++) {
+              const hit = findExactVisibleText(labels[i], "[role='menuitem'], [role='menuitemcheckbox']");
+              if (hit && !(hit.closest && hit.closest("[role='tablist'], [role='tab'], .tabs"))) {
+                return hit;
+              }
+            }
+            return null;
+          }
+          for (let i = 0; i < labels.length; i++) {
+            const hit = findExactVisibleText(labels[i], "[role='menuitem'], button, li, a");
+            if (hit && !(hit.closest && hit.closest("[role='tablist'], [role='tab'], .tabs"))) return hit;
+          }
+          return null;
+        }
+
         // Matches visible "Show All" label inside open context menus (never hardcoded positional div:nth-child(7)).
         function findMT4ShowAllMenuItem() {
-          return (
-            findExactVisibleText('Show All', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu li, .mt4-ctx-menu li, [role='menu'] li, .page-menu button, .mt4-ctx-menu button, [role='menu'] button, .page-menu span, .page-menu div, .mt4-ctx-menu span, .mt4-ctx-menu div") ||
-            findExactVisibleText('Show All', "[role='menuitem'], button, li, a")
-          );
+          return findExactVisibleText('Show All', "[role='menuitem'], [role='menuitemcheckbox']") ||
+            findMT4MenuItemByLabels(['Show All'], true);
         }
 
         function findMT4NewOrderMenuItem() {
-          return (
-            findExactVisibleText('New Order', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu li, .mt4-ctx-menu li, [role='menu'] li, .page-menu button, .mt4-ctx-menu button, [role='menu'] button, .page-menu span, .page-menu div, .mt4-ctx-menu span, .mt4-ctx-menu div") ||
-            findExactVisibleText('New Order', "[role='menuitem']")
-          );
+          // Strictly scoped to menu containers so top toolbar buttons are never mis-clicked as context menu items
+          return findMT4MenuItemByLabels(['New Order'], true);
         }
 
         function findMT4SymbolsMenuItem() {
-          return (
-            findExactVisibleText('Symbols', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] span, [role='menu'] div") ||
-            findExactVisibleText('Symbols...', ".page-menu [role='menuitem'], .mt4-ctx-menu [role='menuitem'], [role='menu'] [role='menuitem'], .page-menu span, .page-menu div, [role='menu'] span, [role='menu'] div") ||
-            findExactVisibleText('Symbols', "[role='menuitem'], button, li, a") ||
-            findExactVisibleText('Symbols...', "[role='menuitem'], button, li, a")
-          );
+          // Strictly scoped to open menu containers so a permanent "Symbols" panel tab is never mis-matched
+          return findMT4MenuItemByLabels(['Symbols', 'Symbols...'], true);
         }
 
         function clickMT4MenuItem(el) {
           if (!el || !isRenderedVisible(el)) return false;
+          const target = resolveMT4MenuItemTarget(el) || el;
           try {
-            const view = getViewFor(el);
-            el.dispatchEvent(new view.MouseEvent('mouseover', { bubbles: true, cancelable: true, view: view }));
-          } catch (_) {}
-          return clickElement(el);
+            const view = getViewFor(target);
+            const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+            const cx = rect ? (rect.left + rect.width / 2) : 0;
+            const cy = rect ? (rect.top + rect.height / 2) : 0;
+            ['mouseenter', 'mouseover', 'mousemove'].forEach(function(evName) {
+              try {
+                target.dispatchEvent(new view.MouseEvent(evName, {
+                  bubbles: evName !== 'mouseenter',
+                  cancelable: true,
+                  composed: true,
+                  view: view,
+                  clientX: cx,
+                  clientY: cy
+                }));
+              } catch (_) {}
+            });
+            // Match MetaQuotes .page-menu activation (mouseover + .click()) first without premature focus/mousedown menu blur
+            if (typeof target.click === 'function') {
+              target.click();
+            } else {
+              target.dispatchEvent(new view.MouseEvent('click', {
+                bubbles: true, cancelable: true, composed: true, view: view, button: 0, clientX: cx, clientY: cy
+              }));
+            }
+            // If menu item stayed mounted & visible (handler listens to mousedown/mouseup instead of click), dispatch mousedown/mouseup without re-firing click
+            if (target.isConnected && isRenderedVisible(target)) {
+              target.dispatchEvent(new view.MouseEvent('mousedown', {
+                bubbles: true, cancelable: true, composed: true, view: view, button: 0, buttons: 1, clientX: cx, clientY: cy
+              }));
+              target.dispatchEvent(new view.MouseEvent('mouseup', {
+                bubbles: true, cancelable: true, composed: true, view: view, button: 0, buttons: 0, clientX: cx, clientY: cy
+              }));
+            }
+            return true;
+          } catch (_) {
+            return clickElement(target);
+          }
         }
 
         function clickMT4ShowAllMenuItem(el) {
@@ -964,12 +1130,13 @@ object WebTerminalScripts {
         }
 
         function findMT4SymbolsDialog() {
-          const candidates = deepAll("[role='dialog'], [role='alertdialog'], .page-window, [class*='dialog' i], [class*='modal' i], [class*='symbols' i]").filter(isRenderedVisible);
+          const candidates = deepAll("[role='dialog'], [role='alertdialog'], .page-window, [class*='dialog' i], [class*='modal' i]").filter(isRenderedVisible);
           return candidates.find(function(el) {
+            if (el.closest && el.closest(".market-watch, [class*='market-watch' i], [role='tablist']")) return false;
             const cls = ((el.className || '') + ' ' + (el.getAttribute && el.getAttribute('aria-label') || '')).toLowerCase();
             if (cls.includes('market-watch')) return false;
             const txt = (el.textContent || '').toLowerCase();
-            if (txt.includes('market watch') && txt.includes('balance')) return false;
+            if (txt.includes('market watch') && (txt.includes('balance') || txt.includes('bid'))) return false;
             return txt.includes('symbols') ||
               (txt.includes('show') && (txt.includes('hide') || txt.includes('close') || txt.includes('properties') || txt.includes('specification')));
           }) || null;
@@ -1103,79 +1270,259 @@ object WebTerminalScripts {
             : findSymbolElement(requestedSymbol, null, verifiedAliases);
         }
 
+        function isLikelyQuoteTableOrPanelContainer(el) {
+          if (!el || !isRenderedVisible(el) || isInsideMenuContainer(el) || isNonMarketWatchQuoteContext(el)) return false;
+          const txtLower = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (!txtLower) return false;
+          if (/\b(?:balance|equity|free\s*margin|close\s+position|account\s+history)\b/.test(txtLower)) return false;
+          if (/#\d{4,}/.test(txtLower)) return false;
+          return true;
+        }
+
         function findMarketWatchPanel() {
-          try {
-            const exactMw = document.querySelector('body > div.page-window.market-watch');
-            if (exactMw && isRenderedVisible(exactMw)) return exactMw;
-          } catch (_) {}
+          const exactMwHits = deepAll('body > div.page-window.market-watch, div.page-window.market-watch')
+            .filter(function(el) {
+              return isRenderedVisible(el) && !isInsideMenuContainer(el) && !isNonMarketWatchQuoteContext(el);
+            });
+          if (exactMwHits.length) return exactMwHits[0];
 
           const explicitPanel = deepAll("[class*='market-watch' i], [data-testid*='market-watch' i], [aria-label*='Market Watch' i]")
             .find(function(el) {
-              if (!isRenderedVisible(el)) return false;
+              if (!isRenderedVisible(el) || isInsideMenuContainer(el) || isNonMarketWatchQuoteContext(el)) return false;
               const tag = (el.tagName || '').toUpperCase();
               if (tag === 'BUTTON' || tag === 'A' || (el.getAttribute && el.getAttribute('role') === 'menuitem')) return false;
               return true;
             });
           if (explicitPanel) return explicitPanel;
 
-          const marketWatchLabel =
-            findExactVisibleText('Market Watch', "div, span, label, th, h1, h2, h3, [role='heading']") ||
-            null;
-          if (!marketWatchLabel) return null;
+          const marketWatchLabel = deepAll("div, span, label, th, h1, h2, h3, [role='heading']")
+            .filter(isRenderedVisible)
+            .find(function(el) {
+              if (isInsideMenuContainer(el) || isNonMarketWatchQuoteContext(el)) return false;
+              const clean = (el.textContent || '').replace(/[✓✔☑]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+              if (!clean || clean.length > 44) return false;
+              return clean === 'market watch' || /^market watch(?:\s*[:(\-·|]|\s+\d)/.test(clean);
+            }) || null;
 
-          let marketWatchPanel = marketWatchLabel;
-          for (let i = 0; i < 5 && marketWatchPanel && marketWatchPanel !== document.body; i++) {
-            if (marketWatchPanel.querySelectorAll) {
-              const rowCount = marketWatchPanel.querySelectorAll("tr, [role='row'], [data-symbol], li, [class*='symbol']").length;
-              const panelText = (marketWatchPanel.textContent || '').toLowerCase();
-              if (panelText.includes('market watch') && (rowCount > 0 || i >= 2)) {
-                break;
+          if (marketWatchLabel) {
+            let marketWatchPanel = marketWatchLabel;
+            for (let i = 0; i < 5 && marketWatchPanel && marketWatchPanel !== document.body; i++) {
+              if (marketWatchPanel.querySelectorAll && !isInsideMenuContainer(marketWatchPanel)) {
+                const rowCount = marketWatchPanel.querySelectorAll("tr, [role='row'], [data-symbol], li, [class*='symbol']").length;
+                const panelText = (marketWatchPanel.textContent || '').toLowerCase();
+                if (panelText.includes('market watch') && (rowCount > 0 || i >= 2)) {
+                  break;
+                }
               }
+              marketWatchPanel = marketWatchPanel.parentElement;
             }
-            marketWatchPanel = marketWatchPanel.parentElement;
+            if (marketWatchPanel && marketWatchPanel !== document.body && isRenderedVisible(marketWatchPanel) && !isInsideMenuContainer(marketWatchPanel)) {
+              return marketWatchPanel;
+            }
+            if (isRenderedVisible(marketWatchLabel) && !isInsideMenuContainer(marketWatchLabel)) {
+              return marketWatchLabel;
+            }
           }
-          if (marketWatchPanel && marketWatchPanel !== document.body && isRenderedVisible(marketWatchPanel)) {
-            return marketWatchPanel;
+
+          // Fallback for compact / hashed-class terminals: locate quote table/panel directly
+          const vpW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1280;
+          const vpH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 960;
+          const quotePanels = deepAll("div.page-window, [class*='page-window' i], [class*='panel' i], [class*='quotes' i], [class*='window' i], [class*='widget' i], [class*='pane' i]")
+            .filter(function(el) {
+              if (!isLikelyQuoteTableOrPanelContainer(el)) return false;
+              try {
+                const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                if (rect && rect.width > vpW * 0.85 && rect.height > vpH * 0.85) return false;
+              } catch (_) {}
+              const tbl = el.querySelector ? el.querySelector('table, [role="grid"], [role="list"]') : null;
+              if (!tbl) return false;
+              const hdrText = (tbl.textContent || '').toLowerCase();
+              const rows = findVisibleMarketWatchSymbolRows(el);
+              const instrumentRows = rows.filter(function(r) {
+                const fc = (r.getElementsByTagName && r.getElementsByTagName('td')[0]) || r;
+                const tok = ((r.getAttribute && (r.getAttribute('data-symbol') || r.getAttribute('data-name'))) || extractPreservedCaseTokens(fc.textContent || '')[0] || '').trim();
+                return looksLikeBrokerInstrumentToken(tok);
+              });
+              return instrumentRows.length >= 2 && (hdrText.includes('bid') || hdrText.includes('ask') || hdrText.includes('symbol') || instrumentRows.length >= 3);
+            });
+          if (quotePanels.length) return quotePanels[0];
+
+          // Row-first quote-container fallback: derive Market Watch container directly from visible quote rows
+          const listContainers = deepAll("table, tbody, [role='grid'], [role='listbox'], [role='list']");
+          let bestList = null;
+          let bestCount = 0;
+          for (let i = 0; i < listContainers.length; i++) {
+            const lc = listContainers[i];
+            if (!isLikelyQuoteTableOrPanelContainer(lc)) continue;
+            const rows = findVisibleMarketWatchSymbolRows(lc);
+            let instCount = 0;
+            for (let r = 0; r < rows.length; r++) {
+              const row = rows[r];
+              const fc = (row.getElementsByTagName && row.getElementsByTagName('td')[0]) || row;
+              const tok = ((row.getAttribute && (row.getAttribute('data-symbol') || row.getAttribute('data-name'))) || extractPreservedCaseTokens(fc.textContent || '')[0] || '').trim();
+              if (looksLikeBrokerInstrumentToken(tok)) instCount++;
+            }
+            if (instCount >= 2 && instCount > bestCount) {
+              bestCount = instCount;
+              bestList = lc;
+            }
           }
-          return isRenderedVisible(marketWatchLabel) ? marketWatchLabel : null;
+          if (bestList) {
+            let panel = bestList;
+            let cur = bestList.parentElement;
+            for (let depth = 0; depth < 4 && cur && cur !== document.body && cur !== document.documentElement; depth++) {
+              if (!isLikelyQuoteTableOrPanelContainer(cur)) break;
+              try {
+                const r = cur.getBoundingClientRect ? cur.getBoundingClientRect() : null;
+                if (r && r.width > vpW * 0.85 && r.height > vpH * 0.85) break;
+              } catch (_) {}
+              const cls = (typeof cur.className === 'string' ? cur.className : '').toLowerCase();
+              panel = cur;
+              if (/page-window|market-watch|quotes|panel|widget|pane|sidebar/.test(cls)) break;
+              cur = cur.parentElement;
+            }
+            return panel;
+          }
+          return null;
+        }
+
+        function findMT4ViewMenuDropdown() {
+          const candidates = deepAll(".page-menu, [role='menu'], [class*='dropdown' i], [class*='popup-menu' i], [class*='menu' i]").filter(isRenderedVisible);
+          return candidates.find(function(m) {
+            const txt = (m.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!txt || txt.includes('show all') || txt.includes('new order')) return false;
+            if (txt.includes('file') && txt.includes('view') && txt.includes('help')) return false;
+            return (txt.includes('market watch') && (
+              txt.includes('languages') ||
+              txt.includes('toolbox') ||
+              txt.includes('terminal') ||
+              txt.includes('navigator') ||
+              txt.includes('status bar') ||
+              txt.includes('data window')
+            )) || (m.getAttribute && m.getAttribute('role') === 'menu' && txt.includes('market watch'));
+          }) || null;
+        }
+
+        function isMT4MenuItemChecked(el) {
+          if (!el) return false;
+          const raw = String(el.textContent || '');
+          if (/[✓✔☑]/.test(raw)) return true;
+          if (el.getAttribute) {
+            const ac = (el.getAttribute('aria-checked') || el.getAttribute('data-checked') || '').toLowerCase();
+            if (ac === 'true' || ac === 'checked') return true;
+          }
+          const cls = ((el.className || '') + ' ' + ((el.parentElement && el.parentElement.className) || '')).toLowerCase();
+          return cls.includes('checked') || cls.includes('active');
+        }
+
+        function findMT4ViewMarketWatchItem(scope) {
+          const root = scope || findMT4ViewMenuDropdown();
+          const items = deepAll("[role='menuitem'], [role='menuitemcheckbox'], li, button, a, tr, div, span", root).filter(isVisible);
+          return items.find(function(n) {
+            if (!root && !isInsideMenuContainer(n)) return false;
+            const raw = (n.textContent || '').replace(/[✓✔☑]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (raw !== 'market watch') return false;
+            return !n.querySelector || !Array.from(n.querySelectorAll('div, span, a, li')).some(function(ch) {
+              return (ch.textContent || '').replace(/[✓✔☑]/g, '').replace(/\s+/g, ' ').trim().toLowerCase() === 'market watch';
+            });
+          }) || null;
+        }
+
+        async function dismissOpenMT4ViewMenus(waitFn) {
+          const openDrop = findMT4ViewMenuDropdown();
+          if (!openDrop) return false;
+          try {
+            const view = typeof window !== 'undefined' ? window : null;
+            const target = document.activeElement || document.body;
+            if (target && view && typeof view.KeyboardEvent === 'function') {
+              target.dispatchEvent(new view.KeyboardEvent('keydown', {
+                key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true, composed: true
+              }));
+              target.dispatchEvent(new view.KeyboardEvent('keyup', {
+                key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true, composed: true
+              }));
+            }
+          } catch (_) {}
+          if (waitFn) await waitFn(80);
+          if (findMT4ViewMenuDropdown()) {
+            const chartNeutral = deepAll("[class*='chart' i], canvas, body > div").find(function(el) {
+              return isRenderedVisible(el) && !isInsideMenuContainer(el) && !(el.textContent || '').toLowerCase().includes('languages');
+            });
+            if (chartNeutral) {
+              singleClick(chartNeutral);
+              if (waitFn) await waitFn(80);
+            }
+          }
+          return true;
         }
 
         async function openHiddenMarketWatch(waitFn, pollMs) {
           let panel = findMarketWatchPanel();
-          if (panel) return panel;
+          if (panel) {
+            await dismissOpenMT4ViewMenus(waitFn);
+            return panel;
+          }
 
-          // 1. Direct Market Watch toolbar / toggle button
-          const mwToggle = deepAll('button, [role="button"], [title*="Market Watch" i], [aria-label*="Market Watch" i], a')
+          // 1. Direct Market Watch toolbar / toggle button (strictly outside dropdown menus)
+          const mwToggle = deepAll("button, [role='button'], [title*='Market Watch' i], [aria-label*='Market Watch' i], a")
             .filter(isVisible)
             .find(function(b) {
-              const t = ((b.innerText || b.textContent || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || ''))
-                .replace(/\s+/g, ' ').trim().toLowerCase();
-              return t.includes('market watch');
+              if (b.closest && b.closest(".page-menu, .mt4-ctx-menu, [class*='context-menu' i], [class*='ctx-menu' i], [class*='popup-menu' i]")) return false;
+              const ownTitle = ((b.getAttribute && (b.getAttribute('aria-label') || b.getAttribute('title'))) || '').trim();
+              const ownText = (b.children && b.children.length > 2) ? '' : (b.innerText || b.textContent || '');
+              const t = (ownText + ' ' + ownTitle).replace(/\s+/g, ' ').trim().toLowerCase();
+              return t.includes('market watch') && !isMT4MenuItemChecked(b);
             });
           if (mwToggle) {
             singleClick(mwToggle);
             await waitFn(Math.min(350, (pollMs || 250) + 80));
             panel = findMarketWatchPanel();
-            if (panel) return panel;
+            if (panel) {
+              await dismissOpenMT4ViewMenus(waitFn);
+              return panel;
+            }
           }
 
-          // 2. Desktop "View" menu -> "Market Watch" menu item
-          const viewMenuTrigger =
-            findExactVisibleText('View', "button, a, [role='button'], [role='menuitem'], [role='tab'], span, div") ||
-            null;
-          if (viewMenuTrigger) {
-            singleClick(viewMenuTrigger);
-            await waitFn(Math.min(250, (pollMs || 250) + 50));
-            const viewMwItem =
-              findExactVisibleText('Market Watch', "[role='menuitem'], .page-menu li, .page-menu div, .page-menu span, [role='menu'] li, [role='menu'] div, button, a") ||
-              deepAll("[role='menuitem'], li, button, a").filter(isVisible).find(function(n) {
-                return ((n.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()).startsWith('market watch');
-              });
+          // 2. Desktop top "View" menu -> "Market Watch" menu item (Languages / Market Watch / Toolbox)
+          const viewCandidates = deepAll("button, a, [role='button'], [role='menuitem'], [role='tab'], li, span, div")
+            .filter(function(el) {
+              if (!isRenderedVisible(el)) return false;
+              if (el.closest && el.closest(".page-menu, .mt4-ctx-menu, [class*='context-menu' i], [class*='ctx-menu' i], [class*='popup-menu' i]")) return false;
+              const clean = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+              if (clean !== 'view') return false;
+              const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+              return !r || r.top <= 160;
+            });
+          if (viewCandidates.length) {
+            let viewDropdown = null;
+            for (let vc = viewCandidates.length - 1; vc >= 0 && !viewDropdown; vc--) {
+              const trigger = viewCandidates[vc];
+              singleClick(trigger);
+              viewDropdown = findMT4ViewMenuDropdown();
+              const dropStart = Date.now();
+              while (!viewDropdown && Date.now() - dropStart < 300) {
+                await waitFn(Math.min(70, pollMs || 70));
+                viewDropdown = findMT4ViewMenuDropdown();
+              }
+            }
+            const viewMwItem = findMT4ViewMarketWatchItem(viewDropdown);
             if (viewMwItem) {
-              singleClick(viewMwItem);
-              await waitFn(Math.min(350, (pollMs || 250) + 80));
-              panel = findMarketWatchPanel();
+              const explicitlyChecked = /[✓✔☑]/.test(String(viewMwItem.textContent || '')) ||
+                (viewMwItem.getAttribute && (viewMwItem.getAttribute('aria-checked') === 'true' || viewMwItem.getAttribute('data-checked') === 'true'));
+              if (!explicitlyChecked && !findMarketWatchPanel()) {
+                clickMT4MenuItem(viewMwItem);
+                const mwStart = Date.now();
+                const openWaitLimit = Math.min(1200, Math.max(400, (pollMs || 250) * 4));
+                while (Date.now() - mwStart < openWaitLimit) {
+                  panel = findMarketWatchPanel();
+                  if (panel) break;
+                  await waitFn(Math.min(120, pollMs || 120));
+                }
+              }
+              await dismissOpenMT4ViewMenus(waitFn);
               if (panel) return panel;
+            } else {
+              await dismissOpenMT4ViewMenus(waitFn);
             }
           }
 
@@ -1216,13 +1563,7 @@ object WebTerminalScripts {
             if (/^\d+(?:\.\d+)?$/.test(clean)) return;
             if (!/^[A-Za-z#][A-Za-z0-9._#-]{1,17}$/.test(clean)) return;
             if (!/[A-Za-z]{2,}/.test(clean)) return;
-            // Must look like an instrument ticker: uppercase pair/commodity/index or prefixed/suffixed symbol
-            const looksLikeInstrument =
-              /^(?:[A-Z]{6}(?:[._#-][A-Za-z0-9]+|[mc])?|XAU|XAG|GOLD|SILVER|BTC|ETH|LTC|XRP|SOL|US30|US500|NAS100|USTEC|DE30|DE40|GER40|UK100|SPX500|JP225|USOIL|UKOIL|XTIUSD|XBRUSD|XNGUSD)/i.test(clean) ||
-              (/[._#][A-Za-z0-9]{1,6}$/.test(clean) && /^[A-Z0-9]{2,10}/.test(clean)) ||
-              (/^#[A-Za-z0-9._-]{2,14}$/.test(clean)) ||
-              (/^[A-Z]{2,6}\d{2,4}$/.test(clean));
-            if (!looksLikeInstrument) return;
+            if (!looksLikeBrokerInstrumentToken(clean)) return;
             const key = clean.toLowerCase();
             if (!seenLower.has(key)) {
               seenLower.add(key);
@@ -2322,7 +2663,193 @@ object WebTerminalScripts {
                 };
               }
 
-              // --- SEPARATE MT4 DISCOVERY (Market Watch -> panel context menu -> Show All prioritised ahead of Symbols... -> row context menu New Order) ---
+              function hasVisibleMT4ContextMenu() {
+                return deepAll(".page-menu, .mt4-ctx-menu, [role='menu'], [class*='context-menu' i], [class*='ctx-menu' i], [class*='popup-menu' i]")
+                  .some(isRenderedVisible);
+              }
+
+              async function pollForMT4DiscoveryMenuItems(waitFn, stepMs, maxWaitMs) {
+                const start = Date.now();
+                let showAll = findMT4ShowAllMenuItem();
+                let symbolsItem = findMT4SymbolsMenuItem();
+                const noMenuAbortMs = Math.min(140, maxWaitMs);
+                while (!showAll && !symbolsItem && Date.now() - start < maxWaitMs) {
+                  if (isCancelled()) return { showAll: null, symbolsItem: null };
+                  if (!hasVisibleMT4ContextMenu() && Date.now() - start >= noMenuAbortMs) {
+                    break;
+                  }
+                  await waitFn(stepMs);
+                  showAll = findMT4ShowAllMenuItem();
+                  symbolsItem = findMT4SymbolsMenuItem();
+                }
+                return { showAll: showAll, symbolsItem: symbolsItem };
+              }
+
+              function findMT4MarketWatchScrollContainers(marketWatchPanel) {
+                if (!marketWatchPanel) return [];
+                const seen = new Set();
+                const out = [];
+                function addIfScrollable(el) {
+                  if (!el || seen.has(el) || !isRenderedVisible(el)) return;
+                  try {
+                    if (el.scrollHeight > (el.clientHeight || 0) + 16) {
+                      seen.add(el);
+                      out.push(el);
+                    }
+                  } catch (_) {}
+                }
+                const prioritized = [
+                  'div.page-block > div',
+                  '.page-block',
+                  'tbody',
+                  'table',
+                  "[role='grid']",
+                  "[role='listbox']"
+                ];
+                for (let p = 0; p < prioritized.length; p++) {
+                  deepAll(prioritized[p], marketWatchPanel).forEach(addIfScrollable);
+                }
+                addIfScrollable(marketWatchPanel);
+                deepAll('div', marketWatchPanel).forEach(addIfScrollable);
+                return out;
+              }
+
+              function mergeDiscoveredSymbols(targetList, seenLower, additions) {
+                if (!Array.isArray(additions)) return;
+                for (let i = 0; i < additions.length; i++) {
+                  const sym = String(additions[i] || '').trim();
+                  if (!sym) continue;
+                  const k = sym.toLowerCase();
+                  if (!seenLower.has(k)) {
+                    seenLower.add(k);
+                    targetList.push(sym);
+                  }
+                }
+              }
+
+              async function scanMT4MarketWatchWithScroll(requested, marketWatchPanel, verifiedAliases, waitFn, pollMs, collectedList, seenLower) {
+                if (!marketWatchPanel) return null;
+                mergeDiscoveredSymbols(collectedList, seenLower, discoverAllBrokerSymbols(marketWatchPanel));
+                let hit = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, verifiedAliases);
+                if (hit) return hit;
+
+                const scrollers = findMT4MarketWatchScrollContainers(marketWatchPanel);
+                for (let s = 0; s < Math.min(2, scrollers.length); s++) {
+                  const box = scrollers[s];
+                  const origTop = box.scrollTop || 0;
+                  const maxTop = Math.max(0, (box.scrollHeight || 0) - (box.clientHeight || 0));
+                  if (maxTop <= 16) continue;
+                  const stepPx = Math.max(120, Math.floor((box.clientHeight || 240) * 0.75));
+                  for (let nextTop = stepPx; nextTop <= maxTop + stepPx; nextTop += stepPx) {
+                    if (isCancelled()) return null;
+                    box.scrollTop = Math.min(maxTop, nextTop);
+                    try { box.dispatchEvent(new Event('scroll', { bubbles: false })); } catch (_) {}
+                    await waitFn(Math.min(70, Math.max(10, Math.floor((pollMs || 250) / 3))));
+                    mergeDiscoveredSymbols(collectedList, seenLower, discoverAllBrokerSymbols(marketWatchPanel));
+                    hit = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, verifiedAliases);
+                    if (hit) {
+                      return hit;
+                    }
+                    if (nextTop >= maxTop) break;
+                  }
+                  box.scrollTop = origTop;
+                }
+                return null;
+              }
+
+              async function openMT4DiscoveryContextMenu(marketWatchPanel, waitFn, pollMs) {
+                const menuWaitMs = Math.min(420, (pollMs || 250) + 160);
+                const stepMs = Math.min(70, Math.max(15, Math.floor((pollMs || 250) / 3)));
+
+                const targets = [];
+                const seenTargetKeys = new Set();
+                function pushTarget(el, selectFirst, cx, cy, tag) {
+                  if (!el || !isRenderedVisible(el) || isInsideMenuContainer(el)) return;
+                  const key = (tag || '') + ':' + targets.length + ':' + (cx || '') + ':' + (cy || '');
+                  if (!tag) {
+                    for (let k = 0; k < targets.length; k++) {
+                      if (targets[k].el === el && targets[k].cx === cx && targets[k].cy === cy) return;
+                    }
+                  }
+                  if (seenTargetKeys.has(key)) return;
+                  seenTargetKeys.add(key);
+                  targets.push({ el: el, selectFirst: !!selectFirst, cx: cx, cy: cy });
+                }
+
+                const sampleRows = findVisibleMarketWatchSymbolRows(marketWatchPanel);
+
+                // 1. Right-click inside Market Watch space below the last symbol row (when empty space exists below last row)
+                if (sampleRows.length > 0) {
+                  try {
+                    const lastRow = sampleRows[sampleRows.length - 1];
+                    const lastRect = lastRow.getBoundingClientRect ? lastRow.getBoundingClientRect() : null;
+                    const boxEl = deepAll('div.page-block > div, .page-block', marketWatchPanel).find(isRenderedVisible) || marketWatchPanel;
+                    const boxRect = boxEl.getBoundingClientRect ? boxEl.getBoundingClientRect() : null;
+                    if (lastRect && boxRect && boxRect.bottom > lastRect.bottom + 14) {
+                      const belowX = boxRect.left + Math.max(12, Math.min(boxRect.width / 2, 48));
+                      const belowY = Math.min(boxRect.bottom - 10, lastRect.bottom + 24);
+                      pushTarget(boxEl, false, belowX, belowY, 'below-last-row');
+                    }
+                  } catch (_) {}
+                }
+
+                // 2. Selector-ordered Market Watch quote tables (never document-order .b/.page-block ahead of tbody/table!)
+                const tableBodySelectors = [
+                  'div.page-block > div > table > tbody',
+                  'tbody',
+                  "[role='rowgroup']",
+                  'table',
+                  "[role='grid']",
+                  "[role='listbox']"
+                ];
+                for (let s = 0; s < tableBodySelectors.length; s++) {
+                  const matches = deepAll(tableBodySelectors[s], marketWatchPanel);
+                  for (let m = 0; m < matches.length; m++) {
+                    if (matches[m] !== marketWatchPanel && !isNonMarketWatchQuoteContext(matches[m])) {
+                      pushTarget(matches[m], false);
+                      break;
+                    }
+                  }
+                }
+
+                // 3. Market Watch inner wrappers & panel container (before falling back to clicking/right-clicking symbol rows)
+                deepAll('.page-block, .b', marketWatchPanel).forEach(function(el) {
+                  if (el !== marketWatchPanel) pushTarget(el, false);
+                });
+                pushTarget(marketWatchPanel, false);
+
+                // 4. Fallback: visible Market Watch symbol rows (direct right-click first, then select-then-right-click; Show All / Symbols ONLY, NEVER New Order)
+                const fallbackRows = [];
+                if (sampleRows.length > 0) fallbackRows.push(sampleRows[0]);
+                if (sampleRows.length > 1) fallbackRows.push(sampleRows[sampleRows.length - 1]);
+                for (let r = 0; r < fallbackRows.length; r++) {
+                  const row = fallbackRows[r];
+                  pushTarget(row, false);
+                  const firstCell = row.querySelector ? row.querySelector('td') : null;
+                  if (firstCell && firstCell !== row) {
+                    pushTarget(firstCell, false);
+                  }
+                }
+                if (sampleRows.length > 0) {
+                  pushTarget(sampleRows[0], true);
+                }
+
+                let found = { showAll: null, symbolsItem: null };
+                for (let i = 0; i < targets.length; i++) {
+                  if (isCancelled()) return found;
+                  const entry = targets[i];
+                  if (entry.selectFirst) {
+                    clickElement(entry.el);
+                    await waitFn(Math.min(100, stepMs + 20));
+                  }
+                  dispatchMT4RightClick(entry.el, entry.cx, entry.cy);
+                  found = await pollForMT4DiscoveryMenuItems(waitFn, stepMs, menuWaitMs);
+                  if (found.showAll || found.symbolsItem) return found;
+                }
+                return found;
+              }
+
+              // --- SEPARATE MT4 DISCOVERY (Market Watch -> panel/row context menu -> Show All prioritised ahead of Symbols... -> row context menu New Order) ---
               // NEVER falls back to MT5 search-field method and NEVER depends on double-clicking!
               async function discoverMT4Symbol(targetSymbol) {
                 const reportPhase = $phaseCall;
@@ -2336,7 +2863,12 @@ object WebTerminalScripts {
                 let marketWatchPanel = await openHiddenMarketWatch(wait, pollMs);
                 if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
 
-                let result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                const collectedSymbols = [];
+                const seenSymbolsLower = new Set();
+
+                let result = await scanMT4MarketWatchWithScroll(
+                  requested, marketWatchPanel, VERIFIED_ALIASES, wait, pollMs, collectedSymbols, seenSymbolsLower
+                );
                 let usedShowAll = false;
                 let usedSymbolsDialog = false;
 
@@ -2351,15 +2883,15 @@ object WebTerminalScripts {
                     };
                   }
 
+                  const initialCount = collectedSymbols.length;
                   reportPhase('SYMBOL_SEARCHING', 'Opening MT4 Market Watch menu (Show All) for ' + requested + '...');
-                  openMT4ContextMenu(marketWatchPanel);
-                  await wait(Math.min(300, pollMs + 50));
+                  const menuHits = await openMT4DiscoveryContextMenu(marketWatchPanel, wait, pollMs);
                   if (isCancelled()) {
                     return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
                   }
 
-                  const showAll = findMT4ShowAllMenuItem();
-                  const symbolsItem = findMT4SymbolsMenuItem();
+                  const showAll = menuHits.showAll;
+                  const symbolsItem = menuHits.symbolsItem;
 
                   // Part 6 requirement: prioritise Show All ahead of Symbols... when missing symbol workflow runs!
                   if (showAll) {
@@ -2370,18 +2902,47 @@ object WebTerminalScripts {
                         platform: 'MT4',
                         requestedSymbol: requested,
                         error: 'Could not activate MT4 Show All',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                        discoveredSymbols: collectedSymbols.length ? collectedSymbols : discoverAllBrokerSymbols(marketWatchPanel)
                       };
                     }
                     await wait(Math.min(400, pollMs * 2 + 100));
+                    if (showAll.isConnected && isRenderedVisible(showAll)) {
+                      clickMT4ShowAllMenuItem(showAll);
+                      await wait(Math.min(250, pollMs + 60));
+                    }
+
                     const mwStart = Date.now();
-                    while (Date.now() - mwStart < 4000) {
+                    let lastPhaseRefresh = mwStart;
+                    let didScrollScanAfterGrowth = false;
+                    let lastElapsedScrollCheck = 0;
+                    while (Date.now() - mwStart < 5500) {
                       if (isCancelled()) {
                         return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
                       }
                       result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
                       if (result) break;
+                      mergeDiscoveredSymbols(collectedSymbols, seenSymbolsLower, discoverAllBrokerSymbols(marketWatchPanel));
+                      const elapsed = Date.now() - mwStart;
+                      const scrollers = findMT4MarketWatchScrollContainers(marketWatchPanel);
+                      const hasScrollableGrowth = scrollers.length > 0 && (!didScrollScanAfterGrowth || elapsed - lastElapsedScrollCheck >= 1600);
+                      if ((collectedSymbols.length > initialCount && !didScrollScanAfterGrowth) || (hasScrollableGrowth && elapsed >= 900)) {
+                        didScrollScanAfterGrowth = true;
+                        lastElapsedScrollCheck = elapsed;
+                        result = await scanMT4MarketWatchWithScroll(
+                          requested, marketWatchPanel, VERIFIED_ALIASES, wait, pollMs, collectedSymbols, seenSymbolsLower
+                        );
+                        if (result) break;
+                      }
+                      if (elapsed - lastPhaseRefresh >= 2000) {
+                        lastPhaseRefresh = Date.now();
+                        reportPhase('SYMBOL_SEARCHING', 'Scanning full MT4 Market Watch list for ' + requested + ' (' + collectedSymbols.length + ' symbols)...');
+                      }
                       await wait(pollMs);
+                    }
+                    if (!result) {
+                      result = await scanMT4MarketWatchWithScroll(
+                        requested, marketWatchPanel, VERIFIED_ALIASES, wait, pollMs, collectedSymbols, seenSymbolsLower
+                      );
                     }
                   } else if (symbolsItem) {
                     usedSymbolsDialog = true;
@@ -2391,7 +2952,7 @@ object WebTerminalScripts {
                         platform: 'MT4',
                         requestedSymbol: requested,
                         error: 'Could not open MT4 Symbols command',
-                        discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                        discoveredSymbols: collectedSymbols.length ? collectedSymbols : discoverAllBrokerSymbols(marketWatchPanel)
                       };
                     }
                     await wait(Math.min(300, pollMs + 80));
@@ -2430,11 +2991,16 @@ object WebTerminalScripts {
                     }
                     await wait(Math.min(350, pollMs + 100));
                     const mwStart = Date.now();
-                    while (Date.now() - mwStart < 2200) {
+                    while (Date.now() - mwStart < 2500) {
                       if (isCancelled()) return { success: false, platform: 'MT4', cancelled: true, error: 'Discovery cancelled' };
                       result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
                       if (result) break;
                       await wait(pollMs);
+                    }
+                    if (!result) {
+                      result = await scanMT4MarketWatchWithScroll(
+                        requested, marketWatchPanel, VERIFIED_ALIASES, wait, pollMs, collectedSymbols, seenSymbolsLower
+                      );
                     }
                   } else {
                     return {
@@ -2442,15 +3008,14 @@ object WebTerminalScripts {
                       platform: 'MT4',
                       requestedSymbol: requested,
                       error: 'MT4 Show All or Symbols menu option not found',
-                      discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                      discoveredSymbols: collectedSymbols.length ? collectedSymbols : discoverAllBrokerSymbols(marketWatchPanel)
                     };
                   }
 
                   // If Show All was tried and still missing, check Symbols... dialog fallback once
-                  if (!result && usedShowAll && symbolsItem) {
-                    openMT4ContextMenu(marketWatchPanel);
-                    await wait(Math.min(250, pollMs + 50));
-                    const fbSymItem = findMT4SymbolsMenuItem();
+                  if (!result && usedShowAll) {
+                    const fbHits = await openMT4DiscoveryContextMenu(marketWatchPanel, wait, pollMs);
+                    const fbSymItem = fbHits.symbolsItem || findMT4SymbolsMenuItem();
                     if (fbSymItem && clickMT4MenuItem(fbSymItem)) {
                       usedSymbolsDialog = true;
                       await wait(Math.min(300, pollMs + 80));
@@ -2465,14 +3030,19 @@ object WebTerminalScripts {
                           singleClick(dlgHit.element);
                           const showBtn = findExactVisibleText('Show', "button, [role='button']", dlg);
                           if (showBtn && !showBtn.disabled) singleClick(showBtn);
+                          else doubleClickMT4Row(dlgHit.element);
                           await wait(Math.min(200, pollMs));
                         }
                         closeMT4SymbolsDialog(dlg);
                       }
-                      result = findMT4MarketWatchSymbolRow(requested, marketWatchPanel, VERIFIED_ALIASES);
+                      result = await scanMT4MarketWatchWithScroll(
+                        requested, marketWatchPanel, VERIFIED_ALIASES, wait, pollMs, collectedSymbols, seenSymbolsLower
+                      );
                     }
                   }
                 }
+
+                mergeDiscoveredSymbols(collectedSymbols, seenSymbolsLower, discoverAllBrokerSymbols(marketWatchPanel));
 
                 if (!result) {
                   return {
@@ -2480,10 +3050,15 @@ object WebTerminalScripts {
                     platform: 'MT4',
                     requestedSymbol: requested,
                     error: 'error:Symbol ' + requested + ' not found',
-                    discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel)
+                    discoveredSymbols: collectedSymbols
                   };
                 }
 
+                try {
+                  if (typeof result.element.scrollIntoView === 'function') {
+                    result.element.scrollIntoView({ block: 'center', inline: 'nearest' });
+                  }
+                } catch (_) {}
                 clickElement(result.element);
 
                 return {
@@ -2498,7 +3073,7 @@ object WebTerminalScripts {
                   usedShowAll: usedShowAll,
                   usedSymbolsDialog: usedSymbolsDialog,
                   $mt4ElementLine
-                  discoveredSymbols: discoverAllBrokerSymbols(marketWatchPanel),
+                  discoveredSymbols: collectedSymbols,
                   message: 'Matching MT4 Market Watch row located; ready for row context-menu New Order'
                 };
               }
@@ -3689,6 +4264,13 @@ object WebTerminalScripts {
                 if (!l) return false;
                 if (l.length > 900) return true;
                 if ((l.includes('market watch') || l.includes('search symbol')) && l.includes('balance') && l.includes('equity')) return true;
+                if (l.includes('balance') && l.includes('equity') && (
+                  l.includes('free margin') ||
+                  l.includes('margin:') ||
+                  l.includes('account history') ||
+                  l.includes('journal') ||
+                  l.includes('positions')
+                )) return true;
                 if (l.includes('positions') && l.includes('balance:') && l.includes('equity:') && l.length > 260) return true;
                 return false;
               }
@@ -3696,7 +4278,7 @@ object WebTerminalScripts {
               function isMarketWatchOrMenuBox(box) {
                 if (!box) return true;
                 const cls = ((box.className || '') + ' ' + (box.getAttribute && box.getAttribute('aria-label') || '')).toLowerCase();
-                if (cls.includes('market-watch') || cls.includes('mt4-ctx-menu') || cls.includes('page-menu')) return true;
+                if (cls.includes('market-watch') || cls.includes('mt4-ctx-menu') || cls.includes('page-menu') || cls.includes('toolbox') || cls.includes('journal')) return true;
                 const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
                 if (!txt) return true;
                 if (txt.includes('market watch') && txt.includes('balance') && !txt.includes('buy') && !txt.includes('ok')) return true;
@@ -3729,6 +4311,7 @@ object WebTerminalScripts {
                 if (!box || isInsidePositionOrOrderTable(box) || isMarketWatchOrMenuBox(box)) return false;
                 const txt = (box.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
                 if (!txt || isWorkspaceContainerText(txt)) return false;
+                if (txt.includes('close position') || (txt.includes('balance') && txt.includes('equity'))) return false;
                 const isOrderForm = isOrderPanelContainerBox(box);
                 if (!isOrderForm) {
                   if (/#\d{4,}/.test(txt) && /\b(?:done|buy|sell|executed|filled|opened|placed)\b/.test(txt)) return true;
@@ -3775,15 +4358,16 @@ object WebTerminalScripts {
                 for (let i = 0; i < candidates.length; i++) {
                   const b = candidates[i];
                   if (isInsidePositionOrOrderTable(b) || isButtonBusyOrDisabled(b)) continue;
-                  if (b.children && b.children.length > 2) continue;
+                  if (b.children && b.children.length > 3) continue;
                   const isSemantic = b.tagName === 'BUTTON' || b.tagName === 'INPUT' || b.getAttribute('role') === 'button' || b.tagName === 'A';
                   if (!isSemantic && b.closest && b.closest('button, [role="button"]')) continue;
                   const txt = normalize(b.innerText || b.value || b.textContent || b.getAttribute('aria-label'));
                   if (!txt) continue;
                   const isExactUpperOk = txt === 'OK';
-                  if (!isExactUpperOk && !(isSemantic && /^ok$/i.test(txt))) continue;
                   const scopedPanel = findBoundedResultOrOrderBoxFor(b);
-                  if (!isDialogLikeContainer(b) && !scopedPanel && semanticBtns.length > 4) continue;
+                  const inDialogScope = isDialogLikeContainer(b) || !!scopedPanel;
+                  if (!isExactUpperOk && !((isSemantic || inDialogScope) && /^ok$/i.test(txt))) continue;
+                  if (!inDialogScope && semanticBtns.length > 4) continue;
                   let score = (isSemantic ? 40 : 10) + (isExactUpperOk ? 20 : 5) + (scopedPanel ? 15 : 0);
                   if (score > bestScore) {
                     bestScore = score;
@@ -3796,7 +4380,7 @@ object WebTerminalScripts {
               function findTopRightCloseControlInBox(box) {
                 if (!box || isInsidePositionOrOrderTable(box)) return null;
                 const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
-                const controls = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a, [aria-label*="close" i], [title*="close" i], [class*="close" i], [data-testid*="close" i], div, span')).filter(isRenderedVisible);
+                const controls = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a, [aria-label*="close" i], [title*="close" i], [class*="close" i], [data-testid*="close" i], .x, div, span')).filter(isRenderedVisible);
                 const labeledHit = controls.find(btn => {
                   if (isInsidePositionOrOrderTable(btn) || isButtonBusyOrDisabled(btn)) return false;
                   if (btn.children && btn.children.length > 3) return false;
@@ -3807,7 +4391,16 @@ object WebTerminalScripts {
                   const tl = txt.toLowerCase();
                   if (isOrderSubmitOrNavLabel(tl)) return false;
                   const hasCloseAttr = /close|dismiss/i.test(closeMeta);
-                  if (!txt && !hasCloseAttr) return false;
+                  const hasCloseClassX = /(?:^|\s|[-_])x(?:\s|$|[-_])/.test(closeMeta);
+                  if (!txt && !hasCloseAttr && !hasCloseClassX) return false;
+                  if (!txt && hasCloseClassX) {
+                    try {
+                      const r = btn.getBoundingClientRect();
+                      return isSemantic || (r && r.width > 0 && r.width <= 60 && r.height > 0 && r.height <= 60);
+                    } catch (_) {
+                      return true;
+                    }
+                  }
                   if (tl === 'done') return isSemantic;
                   if (tl === 'close' || tl === 'cancel' || tl === 'dismiss' || tl === 'got it' || tl === '×' || tl === '✕' || tl === '✖' || tl === 'close dialog' || tl === 'close order' || tl === 'close form') {
                     return true;
@@ -3815,9 +4408,9 @@ object WebTerminalScripts {
                   if (tl === 'x') {
                     try {
                       const r = btn.getBoundingClientRect();
-                      return isSemantic || hasCloseAttr || (r && r.width <= 54 && r.height <= 54);
+                      return isSemantic || hasCloseAttr || hasCloseClassX || (r && r.width <= 54 && r.height <= 54);
                     } catch (_) {
-                      return isSemantic || hasCloseAttr;
+                      return isSemantic || hasCloseAttr || hasCloseClassX;
                     }
                   }
                   return hasCloseAttr && txt.length <= 24;
@@ -3837,25 +4430,31 @@ object WebTerminalScripts {
                   if (isInsidePositionOrOrderTable(el) || isButtonBusyOrDisabled(el)) continue;
                   let r = null;
                   try { r = el.getBoundingClientRect(); } catch (_) {}
-                  if (!r || r.width < 8 || r.width > 52 || r.height < 8 || r.height > 52) continue;
-                  if (r.top < boxRect.top - 4 || r.top > boxRect.top + 56) continue;
-                  if (r.right < boxRect.right - 72 || r.right > boxRect.right + 4) continue;
+                  if (!r || r.width < 8 || r.width > 56 || r.height < 8 || r.height > 56) continue;
+                  if (r.top < boxRect.top - 4 || r.top > boxRect.top + 64) continue;
+                  if (r.right < boxRect.right - 80 || r.right > boxRect.right + 4) continue;
                   const t = normalize(el.innerText || el.textContent);
                   const tl = t.toLowerCase();
                   if (t && tl !== 'x' && t !== '×' && t !== '✕' && t !== '✖') continue;
                   const isSemantic = el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button';
                   const hasSvg = el.tagName === 'SVG' || !!(el.querySelector && el.querySelector('svg'));
+                  const closeMeta = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (typeof el.className === 'string' ? el.className : '')).toLowerCase();
+                  const hasMetaHint = /close|dismiss/i.test(closeMeta) || /(?:^|\s|[-_])x(?:\s|$|[-_])/.test(closeMeta);
                   let pointerOrBg = false;
                   try {
                     const st = getViewFor(el).getComputedStyle(el);
-                    pointerOrBg = !!(st && (st.cursor === 'pointer' || (st.backgroundColor && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && st.backgroundColor !== 'transparent')));
+                    pointerOrBg = !!(st && (
+                      st.cursor === 'pointer' ||
+                      (st.backgroundColor && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && st.backgroundColor !== 'transparent') ||
+                      (st.backgroundImage && st.backgroundImage !== 'none')
+                    ));
                   } catch (_) {}
-                  if (!isSemantic && !hasSvg && !t && !pointerOrBg) continue;
+                  if (!isSemantic && !hasSvg && !t && !pointerOrBg && !hasMetaHint) continue;
                   if (el.tagName === 'SVG' && el.parentElement && el.parentElement !== box) {
                     const pTag = el.parentElement.tagName;
                     if (pTag === 'BUTTON' || pTag === 'A' || el.parentElement.getAttribute('role') === 'button') continue;
                   }
-                  const score = (isSemantic ? 40 : 10) + (t ? 25 : 0) + (hasSvg ? 15 : 0) + (pointerOrBg ? 10 : 0);
+                  const score = (isSemantic ? 40 : 10) + (t ? 25 : 0) + (hasSvg ? 15 : 0) + (hasMetaHint ? 20 : 0) + (pointerOrBg ? 10 : 0);
                   if (score > bestIconScore) {
                     bestIconScore = score;
                     bestIcon = el;
@@ -3970,10 +4569,13 @@ object WebTerminalScripts {
               // clicks OK first, escalates to top-right × / red [x] if OK leaves the drawer open, retries refused clicks,
               // and confirms the blocking modal actually disappeared from the DOM.
               async function dismissBlockingDialogsAndConfirmClear(maxAttempts, waitTimeoutMs) {
+                const fnStart = Date.now();
                 const attemptsLimit = Number(maxAttempts || 8);
-                const verifyTimeout = Number(waitTimeoutMs || 1400);
+                const verifyTimeout = Number(waitTimeoutMs || 1800);
                 let actions = 0;
                 let okClicks = 0;
+                let headerCloseClicks = 0;
+                let consecutiveNoControlTicks = 0;
 
                 for (let step = 0; step < attemptsLimit; step++) {
                   if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
@@ -3982,34 +4584,65 @@ object WebTerminalScripts {
                   }
                   const okBtn = findScopedResultOkButton();
                   const headerClose = findHeaderCloseIconControl() || findStaleOrderEntryCloseButton();
-                  const targetBtn = (okBtn && okClicks < 2)
-                    ? (okClicks++, okBtn)
-                    : (headerClose || okBtn);
+                  let targetBtn = null;
+                  if (okBtn && okClicks < 2) {
+                    okClicks++;
+                    targetBtn = okBtn;
+                  } else if (headerClose && headerCloseClicks < 3) {
+                    headerCloseClicks++;
+                    targetBtn = headerClose;
+                  } else if (okBtn && okClicks < 3) {
+                    okClicks++;
+                    targetBtn = okBtn;
+                  }
+
                   if (targetBtn) {
+                    consecutiveNoControlTicks = 0;
                     singleClick(targetBtn);
                     actions++;
-                    await wait(160);
+                    await wait(180);
+                  } else if (actions > 0) {
+                    // Already clicked OK / close — break cleanly into verifyTimeout polling so async DOM closure finishes
+                    break;
                   } else {
+                    consecutiveNoControlTicks++;
+                    if (consecutiveNoControlTicks >= 5) {
+                      break;
+                    }
                     await wait(120);
                   }
                 }
 
-                const pollStart = Date.now();
-                while (Date.now() - pollStart < verifyTimeout) {
-                  if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
-                  if (!hasOpenOrderOrResultDialog()) {
-                    return { cleared: true, actions: actions };
+                if (hasOpenOrderOrResultDialog() && (actions > 0 || consecutiveNoControlTicks < 5)) {
+                  let pollNoCtrl = 0;
+                  while (Date.now() - fnStart < verifyTimeout) {
+                    if (isCancelled()) return { cleared: false, cancelled: true, reason: 'Cancelled' };
+                    if (!hasOpenOrderOrResultDialog()) {
+                      return { cleared: true, actions: actions };
+                    }
+                    const retryOk = findScopedResultOkButton();
+                    const retryHeaderClose = findHeaderCloseIconControl() || findStaleOrderEntryCloseButton();
+                    let retryBtn = null;
+                    if (retryOk && okClicks < 2) {
+                      okClicks++;
+                      retryBtn = retryOk;
+                    } else if (retryHeaderClose && headerCloseClicks < 3) {
+                      headerCloseClicks++;
+                      retryBtn = retryHeaderClose;
+                    } else if (retryOk && okClicks < 3) {
+                      okClicks++;
+                      retryBtn = retryOk;
+                    }
+                    if (retryBtn) {
+                      pollNoCtrl = 0;
+                      singleClick(retryBtn);
+                      actions++;
+                    } else if (actions === 0) {
+                      pollNoCtrl++;
+                      if (pollNoCtrl >= 5) break;
+                    }
+                    await wait(120);
                   }
-                  const retryOk = findScopedResultOkButton();
-                  const retryHeaderClose = findHeaderCloseIconControl() || findStaleOrderEntryCloseButton();
-                  const retryBtn = (retryOk && okClicks < 2)
-                    ? (okClicks++, retryOk)
-                    : (retryHeaderClose || retryOk);
-                  if (retryBtn) {
-                    singleClick(retryBtn);
-                    actions++;
-                  }
-                  await wait(120);
                 }
 
                 const stillOpen = hasOpenOrderOrResultDialog();
@@ -4115,6 +4748,8 @@ object WebTerminalScripts {
                   (mwPanel ? (findMT4MarketWatchSymbolRow(activeSymbolName, mwPanel, VERIFIED_ALIASES) || {}).element : null);
                 if (!rowTarget) return false;
                 lastSelectedSymbolElement = rowTarget;
+                clickElement(rowTarget);
+                await wait(60);
                 if (!openMT4RowContextMenu(rowTarget)) return false;
                 const start = Date.now();
                 let newOrderMi = findMT4NewOrderMenuItem();
@@ -4452,7 +5087,7 @@ object WebTerminalScripts {
                         setPhase('TRADE_CONFIRMED:' + currentTrade + ':' + COUNT, summary);
                         log(summary, false, false);
 
-                        const postClear = await dismissBlockingDialogsAndConfirmClear(8, 1500);
+                        const postClear = await dismissBlockingDialogsAndConfirmClear(10, 2200);
                         if (isCancelled()) return;
                         if (!postClear.cleared && currentTrade < COUNT) {
                           const haltErr = 'Trade ' + currentTrade + '/' + COUNT + ' confirmed, but blocking dialog remained open — halted Trade ' + (currentTrade + 1) + '/' + COUNT + '.';
@@ -4557,7 +5192,7 @@ object WebTerminalScripts {
 
                         if (polls >= maxPolls) {
                           // No-blind-retry rule: clean up blocking UI if possible, report UNKNOWN, and stop!
-                          const unknownClear = await dismissBlockingDialogsAndConfirmClear(8, 1400);
+                          const unknownClear = await dismissBlockingDialogsAndConfirmClear(6, 1000);
                           if (isCancelled()) return;
                           const unknownMsg = 'Trade ' + currentTrade + '/' + COUNT + ' status UNKNOWN (' + confirmedCount + '/' + COUNT + ' confirmed): error:Unable to confirm trade submission. The trade was not retried.' +
                             (unknownClear.cleared ? '' : ' [terminal dialog remained open]');

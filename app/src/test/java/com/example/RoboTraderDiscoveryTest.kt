@@ -3423,6 +3423,830 @@ class RoboTraderDiscoveryTest {
         assertTrue("mt4StalePageWindowClearedAndGbpcadExecutedOk failed: $results", results.getBoolean("mt4StalePageWindowClearedAndGbpcadExecutedOk"))
     }
 
+    @Test
+    fun `MT4 3-scenario discovery handles row right-click Show All fallback, checked View menu safety, and hidden Market Watch`() {
+        val mt4Gbpcad2Js = WebTerminalScripts.buildTradeScript("GBPCAD", "BUY", "0.01", "", "", "BTECH-EA", 2, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-sc2", 25, "", 501L)
+        val mt4Gbpcad1Js = WebTerminalScripts.buildTradeScript("GBPCAD", "SELL", "0.01", "", "", "BTECH-EA", 1, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-sc3", 25, "", 502L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+
+          function createMt4ScenarioDom(opts) {
+            opts = opts || {};
+            const d = createDomDocument();
+            const st = {
+              showAllClicks: 0,
+              newOrderForSymbol: [],
+              viewClicks: 0,
+              viewMwItemClicks: 0,
+              viewMenuOpen: !!opts.viewMenuInitiallyOpen,
+              buyClicks: 0,
+              sellClicks: 0,
+              redXClicks: 0,
+              mwVisible: opts.mwInitiallyVisible !== false,
+              results: [],
+              logs: []
+            };
+
+            const topBar = d.createElement('div');
+            topBar.textContent = 'File ';
+            const viewTrigger = d.createElement('span');
+            viewTrigger.textContent = 'View';
+            viewTrigger.getBoundingClientRect = function() { return { left: 40, top: 8, width: 42, height: 22, right: 82, bottom: 30 }; };
+            let viewDrop = null;
+
+            function syncViewDrop() {
+              if (viewDrop && viewDrop.parentElement) viewDrop.parentElement.removeChild(viewDrop);
+              viewDrop = null;
+              if (!st.viewMenuOpen) return;
+              viewDrop = d.createElement('div');
+              viewDrop.className = 'page-menu';
+              ['Languages', (st.mwVisible ? '✓ ' : '') + 'Market Watch', '✓ Toolbox'].forEach(function(lbl) {
+                const it = d.createElement('div');
+                it.setAttribute('role', 'menuitem');
+                it.textContent = lbl;
+                if (lbl.indexOf('Market Watch') >= 0) {
+                  it.addEventListener('click', function() {
+                    st.viewMwItemClicks++;
+                    st.mwVisible = !st.mwVisible;
+                    st.viewMenuOpen = false;
+                    syncViewDrop();
+                    syncMw();
+                  });
+                }
+                viewDrop.appendChild(it);
+              });
+              d.body.appendChild(viewDrop);
+            }
+
+            viewTrigger.addEventListener('click', function() {
+              st.viewClicks++;
+              st.viewMenuOpen = !st.viewMenuOpen;
+              syncViewDrop();
+            });
+            topBar.appendChild(viewTrigger);
+            d.body.appendChild(topBar);
+
+            // Dismiss View menu on Escape as real MT4 web terminal does
+            d.documentElement.addEventListener('keydown', function(ev) {
+              if (ev && ev.key === 'Escape' && st.viewMenuOpen) {
+                st.viewMenuOpen = false;
+                syncViewDrop();
+              }
+            });
+
+            const hdr = d.createElement('div');
+            hdr.textContent = 'Balance: 500.00 USD Equity: 500.00 USD Positions';
+            d.body.appendChild(hdr);
+
+            const mw = d.createElement('div');
+            mw.className = 'page-window market-watch';
+            const mwTitle = d.createElement('div');
+            mwTitle.textContent = 'Market Watch';
+            mw.appendChild(mwTitle);
+            const tbl = d.createElement('table');
+            const tbody = d.createElement('tbody');
+            tbl.appendChild(tbody);
+            mw.appendChild(tbl);
+            d.body.appendChild(mw);
+
+            // NOTE: Intentionally NO contextmenu listener on mw or tbody — ONLY on symbol <tr> rows!
+            function renderMwRows(list) {
+              while (tbody.children.length > 0) tbody.removeChild(tbody.children[0]);
+              list.forEach(function(sym) {
+                const tr = d.createElement('tr');
+                const td = d.createElement('td');
+                td.textContent = sym + ' 1.1020 1.1022';
+                tr.appendChild(td);
+                tr.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  d.querySelectorAll('.mt4-ctx-menu').forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+                  const menu = d.createElement('div');
+                  menu.className = 'mt4-ctx-menu';
+                  ['New Order', 'Show All', 'Hide All'].forEach(function(lbl) {
+                    const mi = d.createElement('div');
+                    mi.setAttribute('role', 'menuitem');
+                    mi.textContent = lbl;
+                    mi.addEventListener('click', function() {
+                      if (menu.parentElement) menu.parentElement.removeChild(menu);
+                      if (lbl === 'Show All') {
+                        st.showAllClicks++;
+                        setTimeout(function() {
+                          renderMwRows(['EURUSD', 'USDCHF', 'GBPUSD', 'GBPCAD']);
+                        }, 25);
+                      } else if (lbl === 'New Order') {
+                        st.newOrderForSymbol.push(sym);
+                        spawnOrderWin(sym);
+                      }
+                    });
+                    menu.appendChild(mi);
+                  });
+                  d.body.appendChild(menu);
+                });
+                tbody.appendChild(tr);
+              });
+            }
+            renderMwRows(['EURUSD', 'USDCHF']);
+
+            function syncMw() {
+              mw.style.display = st.mwVisible ? 'block' : 'none';
+            }
+            syncMw();
+            if (st.viewMenuOpen) syncViewDrop();
+
+            function spawnOrderWin(sym) {
+              const win = d.createElement('div');
+              win.className = 'page-window';
+              const h = d.createElement('div');
+              const rx = d.createElement('div');
+              rx.className = 'x';
+              rx.textContent = 'x';
+              rx.addEventListener('click', function() {
+                st.redXClicks++;
+                if (win.parentElement) win.parentElement.removeChild(win);
+              });
+              h.textContent = 'Order';
+              h.appendChild(rx);
+              win.appendChild(h);
+
+              const sel = d.createElement('select');
+              const opt = d.createElement('option');
+              opt.value = sym;
+              opt.textContent = sym;
+              sel.appendChild(opt);
+              win.appendChild(sel);
+
+              const tSel = d.createElement('select');
+              const mOpt = d.createElement('option');
+              mOpt.value = 'Market Execution';
+              mOpt.textContent = 'Market Execution';
+              tSel.appendChild(mOpt);
+              win.appendChild(tSel);
+
+              const vIn = d.createElement('input'); vIn.id = 'volume';
+              const cIn = d.createElement('input'); cIn.id = 'comment';
+              win.appendChild(vIn);
+              win.appendChild(cIn);
+
+              const sellB = d.createElement('div'); sellB.textContent = 'Sell by Market';
+              sellB.addEventListener('click', function() {
+                st.sellClicks++;
+                const pos = d.createElement('tr');
+                pos.textContent = '#61010' + st.sellClicks + ' sell 0.01 ' + sym + ' at 1.7200';
+                d.body.appendChild(pos);
+                const doneDiv = d.createElement('div');
+                doneDiv.textContent = 'Done';
+                win.appendChild(doneDiv);
+              });
+              const buyB = d.createElement('div'); buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                st.buyClicks++;
+                const pos = d.createElement('tr');
+                pos.textContent = '#61020' + st.buyClicks + ' buy 0.01 ' + sym + ' at 1.7210';
+                d.body.appendChild(pos);
+                const doneDiv = d.createElement('div');
+                doneDiv.textContent = 'Done';
+                win.appendChild(doneDiv);
+              });
+              win.appendChild(sellB);
+              win.appendChild(buyB);
+              d.body.appendChild(win);
+            }
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return st;
+          }
+
+          // Scenario A: Market Watch open, panel right-click has NO handler, View menu is ALSO open with ✓ Market Watch!
+          const stA = createMt4ScenarioDom({ mwInitiallyVisible: true, viewMenuInitiallyOpen: true });
+          eval(${JSONObject.quote(mt4Gbpcad2Js)});
+          for (let w = 0; w < 240 && !stA.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const scenarioARowFallbackShowAllOk =
+            stA.mwVisible === true &&
+            stA.viewMwItemClicks === 0 &&
+            stA.viewMenuOpen === false &&
+            stA.showAllClicks === 1 &&
+            stA.newOrderForSymbol.length === 2 &&
+            stA.newOrderForSymbol.every(function(s) { return s === 'GBPCAD'; }) &&
+            stA.buyClicks === 2 &&
+            stA.redXClicks === 2 &&
+            stA.results.length === 1 &&
+            stA.results[0].status === 'ACCEPTED';
+
+          // Scenario B: Market Watch starts HIDDEN -> View -> Market Watch -> Show All -> New Order on GBPCAD
+          const stB = createMt4ScenarioDom({ mwInitiallyVisible: false, viewMenuInitiallyOpen: false });
+          eval(${JSONObject.quote(mt4Gbpcad1Js)});
+          for (let w = 0; w < 220 && !stB.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const scenarioBHiddenMwViewOpenOk =
+            stB.viewClicks >= 1 &&
+            stB.viewMwItemClicks === 1 &&
+            stB.mwVisible === true &&
+            stB.viewMenuOpen === false &&
+            stB.showAllClicks === 1 &&
+            stB.newOrderForSymbol.length === 1 &&
+            stB.newOrderForSymbol[0] === 'GBPCAD' &&
+            stB.sellClicks === 1 &&
+            stB.redXClicks === 1 &&
+            stB.results.length === 1 &&
+            stB.results[0].status === 'ACCEPTED';
+
+          console.log(JSON.stringify({
+            ok: true,
+            scenarioARowFallbackShowAllOk: scenarioARowFallbackShowAllOk,
+            scenarioBHiddenMwViewOpenOk: scenarioBHiddenMwViewOpenOk,
+            stA: { showAllClicks: stA.showAllClicks, newOrderForSymbol: stA.newOrderForSymbol, viewMwItemClicks: stA.viewMwItemClicks, viewMenuOpen: stA.viewMenuOpen, buyClicks: stA.buyClicks, redXClicks: stA.redXClicks },
+            stB: { viewClicks: stB.viewClicks, viewMwItemClicks: stB.viewMwItemClicks, mwVisible: stB.mwVisible, viewMenuOpen: stB.viewMenuOpen, showAllClicks: stB.showAllClicks, newOrderForSymbol: stB.newOrderForSymbol, sellClicks: stB.sellClicks }
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("MT4 3-scenario regression failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue("scenarioARowFallbackShowAllOk failed: $results", results.getBoolean("scenarioARowFallbackShowAllOk"))
+        assertTrue("scenarioBHiddenMwViewOpenOk failed: $results", results.getBoolean("scenarioBHiddenMwViewOpenOk"))
+    }
+
+    @Test
+    fun `Live Screenshot Regression MT4 handles clocked or generic Market Watch panel, menubar View menu, empty-text dot-x icon, and async OK across 4 trades`() {
+        val mt4GbpcadJs = WebTerminalScripts.buildTradeScript("GBPCAD", "BUY", "0.01", "", "", "BTECH-EA", 1, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-mw", 25, "", 601L)
+        val mt4Xau4Js = WebTerminalScripts.buildTradeScript("XAUUSD", "BUY", "0.01", "", "", "BTECH-EA", 4, "MT4", "Exness", "Exness-Trial10", "{}", "live-mt4-xau4", 25, "", 602L)
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+
+          // 1. Generic wrapper (no .market-watch / no .page-window), clocked header "Market Watch: 04:21:08",
+          //    plus a Toolbox .page-window with open trade rows that must NEVER block dialog cleanup.
+          function createLiveMt4LayoutDom(cfg) {
+            cfg = cfg || {};
+            const d = createDomDocument();
+            const st = {
+              showAllClicks: 0,
+              buyClicks: 0,
+              emptyXClicks: 0,
+              okClicks: 0,
+              viewMenuOpened: false,
+              mwVisible: cfg.mwHidden ? false : true,
+              results: [],
+              logs: []
+            };
+
+            if (cfg.mwHidden) {
+              const bar = d.createElement('div');
+              bar.setAttribute('role', 'menubar');
+              const viewMi = d.createElement('div');
+              viewMi.setAttribute('role', 'menuitem');
+              viewMi.textContent = 'View';
+              viewMi.getBoundingClientRect = function() { return { left: 40, top: 8, width: 42, height: 22, right: 82, bottom: 30 }; };
+              viewMi.addEventListener('click', function() {
+                st.viewMenuOpened = true;
+                const drop = d.createElement('div');
+                drop.className = 'page-menu';
+                ['Languages', 'Market Watch', 'Terminal', 'Navigator'].forEach(function(lbl) {
+                  const item = d.createElement('div');
+                  item.setAttribute('role', 'menuitem');
+                  item.textContent = lbl;
+                  if (lbl === 'Market Watch') {
+                    item.addEventListener('click', function() {
+                      if (drop.parentElement) drop.parentElement.removeChild(drop);
+                      st.mwVisible = true;
+                      mwWrap.style.display = 'block';
+                    });
+                  }
+                  drop.appendChild(item);
+                });
+                d.body.appendChild(drop);
+              });
+              bar.appendChild(viewMi);
+              d.body.appendChild(bar);
+            }
+
+            // Bottom MT4 Toolbox .page-window with Balance/Equity/Free margin & open position row
+            const toolbox = d.createElement('div');
+            toolbox.className = 'page-window';
+            const tbSummary = d.createElement('div');
+            tbSummary.textContent = 'Balance: 6 260.13 ZAR Equity: 6 243.60 Free margin: 6 100.00';
+            toolbox.appendChild(tbSummary);
+            const tbTable = d.createElement('table');
+            const tbBody = d.createElement('tbody');
+            const existingPos = d.createElement('tr');
+            existingPos.textContent = '#710001 buy 0.01 XAUUSD at 2650.00';
+            tbBody.appendChild(existingPos);
+            tbTable.appendChild(tbBody);
+            toolbox.appendChild(tbTable);
+            d.body.appendChild(toolbox);
+
+            // Market Watch with non-standard wrapper class (mw-container) & clocked header (or no header!)
+            const mwWrap = d.createElement('div');
+            mwWrap.className = 'mw-container';
+            if (cfg.mwHidden) mwWrap.style.display = 'none';
+            if (!cfg.noMwHeader) {
+              const mwHdr = d.createElement('div');
+              mwHdr.textContent = 'Market Watch: 04:21:08';
+              mwWrap.appendChild(mwHdr);
+            }
+            const mwTbl = d.createElement('table');
+            const mwTbody = d.createElement('tbody');
+            mwTbl.appendChild(mwTbody);
+            mwWrap.appendChild(mwTbl);
+            d.body.appendChild(mwWrap);
+
+            function populateMw(symbols) {
+              while (mwTbody.children.length > 0) mwTbody.removeChild(mwTbody.children[0]);
+              symbols.forEach(function(sym) {
+                const tr = d.createElement('tr');
+                const td = d.createElement('td');
+                td.textContent = sym + ' 1.1020 1.1022';
+                tr.appendChild(td);
+                tr.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  d.querySelectorAll('.mt4-ctx-menu').forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+                  const m = d.createElement('div');
+                  m.className = 'mt4-ctx-menu';
+                  ['New Order', 'Show All'].forEach(function(lbl) {
+                    const mi = d.createElement('div');
+                    mi.setAttribute('role', 'menuitem');
+                    mi.textContent = lbl;
+                    mi.addEventListener('click', function() {
+                      if (m.parentElement) m.parentElement.removeChild(m);
+                      if (lbl === 'Show All') {
+                        st.showAllClicks++;
+                        populateMw(['EURUSD', 'USDJPY', 'GBPUSD', 'XAUUSD', 'BTCUSD', 'GBPCAD']);
+                      } else if (lbl === 'New Order') {
+                        spawnOrderWindow(sym);
+                      }
+                    });
+                    m.appendChild(mi);
+                  });
+                  d.body.appendChild(m);
+                });
+                mwTbody.appendChild(tr);
+              });
+            }
+            populateMw(['EURUSD', 'USDJPY', 'GBPUSD', 'XAUUSD', 'BTCUSD']);
+
+            function spawnOrderWindow(sym) {
+              const win = d.createElement('div');
+              win.className = 'page-window';
+              win.getBoundingClientRect = function() {
+                if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                return { left: 100, top: 150, width: 520, height: 320, right: 620, bottom: 470 };
+              };
+              const hdr = d.createElement('div');
+              const title = d.createElement('span');
+              title.textContent = 'Order';
+              // Empty-text CSS sprite <div class="x"></div> (no textContent, transparent backgroundColor, backgroundImage set)
+              const emptyX = d.createElement('div');
+              emptyX.className = 'x';
+              emptyX.style.backgroundColor = 'transparent';
+              emptyX.style.backgroundImage = 'url(sprite.png)';
+              emptyX.style.cursor = 'default';
+              emptyX.getBoundingClientRect = function() {
+                if (!this.isConnected) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+                return { left: 590, top: 156, width: 18, height: 18, right: 608, bottom: 174 };
+              };
+              emptyX.addEventListener('click', function() {
+                st.emptyXClicks++;
+                if (win.parentElement) win.parentElement.removeChild(win);
+              });
+              hdr.appendChild(title);
+              hdr.appendChild(emptyX);
+              win.appendChild(hdr);
+
+              const sel = d.createElement('select');
+              const opt = d.createElement('option');
+              opt.value = sym; opt.textContent = sym;
+              sel.appendChild(opt);
+              win.appendChild(sel);
+
+              const vIn = d.createElement('input'); vIn.id = 'volume';
+              win.appendChild(vIn);
+
+              const buyB = d.createElement('div');
+              buyB.textContent = 'Buy by Market';
+              buyB.addEventListener('click', function() {
+                st.buyClicks++;
+                const idx = st.buyClicks;
+                const posRow = d.createElement('tr');
+                posRow.textContent = '#72000' + idx + ' buy ' + (vIn.value || '0.01') + ' ' + sym + ' at 2655.00';
+                tbBody.appendChild(posRow);
+
+                if (cfg.slowAsyncOkAndEmptyX) {
+                  // On Trade 3/4, delay rendering OK by 180ms and ignore OK clicks for 450ms so either empty .x closes it or delayed async OK removes it!
+                  setTimeout(function() {
+                    if (!win.isConnected) return;
+                    const doneMsg = d.createElement('div');
+                    doneMsg.textContent = 'Done';
+                    const okB = d.createElement('button');
+                    okB.textContent = 'OK';
+                    okB.addEventListener('click', function() {
+                      st.okClicks++;
+                      if (idx !== 3) {
+                        setTimeout(function() { if (win.parentElement) win.parentElement.removeChild(win); }, 40);
+                      } else {
+                        // On Trade 3, OK click alone closes slowly after 480ms unless empty .x closes it first!
+                        setTimeout(function() { if (win.parentElement) win.parentElement.removeChild(win); }, 480);
+                      }
+                    });
+                    win.appendChild(doneMsg);
+                    win.appendChild(okB);
+                  }, idx === 3 ? 180 : 20);
+                } else {
+                  const doneMsg = d.createElement('div');
+                  doneMsg.textContent = 'Done';
+                  const okB = d.createElement('button');
+                  okB.textContent = 'OK';
+                  okB.addEventListener('click', function() {
+                    st.okClicks++;
+                    if (win.parentElement) win.parentElement.removeChild(win);
+                  });
+                  win.appendChild(doneMsg);
+                  win.appendChild(okB);
+                }
+              });
+              win.appendChild(buyB);
+              d.body.appendChild(win);
+            }
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return st;
+          }
+
+          // Case 1: Clocked header "Market Watch: 04:21:08" + generic wrapper -> finds panel, runs Show All, executes GBPCAD
+          const st1 = createLiveMt4LayoutDom({});
+          eval(${JSONObject.quote(mt4GbpcadJs)});
+          for (let w = 0; w < 200 && !st1.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const clockedMwShowAllOk =
+            st1.showAllClicks === 1 &&
+            st1.buyClicks === 1 &&
+            st1.results.length === 1 &&
+            st1.results[0].status === 'ACCEPTED' &&
+            st1.results[0].actualSymbol === 'GBPCAD';
+
+          // Case 2: No Market Watch text header at all (row-first fallback) + menubar View trigger -> opens MW, runs Show All, executes GBPCAD
+          const st2 = createLiveMt4LayoutDom({ noMwHeader: true, mwHidden: true });
+          eval(${JSONObject.quote(mt4GbpcadJs)});
+          for (let w = 0; w < 220 && !st2.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const hiddenMenubarAndRowFirstMwOk =
+            st2.viewMenuOpened === true &&
+            st2.mwVisible === true &&
+            st2.showAllClicks === 1 &&
+            st2.buyClicks === 1 &&
+            st2.results.length === 1 &&
+            st2.results[0].status === 'ACCEPTED';
+
+          // Case 3: 4-trade XAUUSD sequence where Trade 3 delays OK by 180ms & closes slowly (480ms) with empty-text .x icon + live Toolbox table
+          const st3 = createLiveMt4LayoutDom({ slowAsyncOkAndEmptyX: true });
+          eval(${JSONObject.quote(mt4Xau4Js)});
+          for (let w = 0; w < 380 && !st3.logs.some(function(l) { return l.done; }); w++) { await sleepMs(50); }
+          const mt4FourTradesSlowOkAndEmptyXClearedOk =
+            st3.buyClicks === 4 &&
+            st3.emptyXClicks >= 1 &&
+            st3.results.length === 1 &&
+            st3.results[0].status === 'ACCEPTED' &&
+            st3.results[0].confirmedCount === 4;
+
+          console.log(JSON.stringify({
+            ok: true,
+            clockedMwShowAllOk: clockedMwShowAllOk,
+            hiddenMenubarAndRowFirstMwOk: hiddenMenubarAndRowFirstMwOk,
+            mt4FourTradesSlowOkAndEmptyXClearedOk: mt4FourTradesSlowOkAndEmptyXClearedOk,
+            st3: { buyClicks: st3.buyClicks, okClicks: st3.okClicks, emptyXClicks: st3.emptyXClicks, results: st3.results }
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Live Screenshot MT4 regression failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue("clockedMwShowAllOk failed: $results", results.getBoolean("clockedMwShowAllOk"))
+        assertTrue("hiddenMenubarAndRowFirstMwOk failed: $results", results.getBoolean("hiddenMenubarAndRowFirstMwOk"))
+        assertTrue("mt4FourTradesSlowOkAndEmptyXClearedOk failed: $results", results.getBoolean("mt4FourTradesSlowOkAndEmptyXClearedOk"))
+    }
+
+    @Test
+    fun `Live Screenshot Regression MT4 ignores permanent Symbols tab, triggers page-menu Show All without mousedown dismissal, and scrolls virtualized Market Watch for GBPCAD`() {
+        val mt4GbpcadJs = WebTerminalScripts.buildTradeScript(
+            "GBPCAD", "BUY", "0.01", "", "", "BTECH-MT4-LIVE",
+            1, "MT4", "Exness", "Exness-Trial10", "{}",
+            "live-mt4-gbpcad-virtual", 25, "71908336", 701L
+        )
+
+        val script = """
+        (async function() {
+          global.location = { href: 'https://metatraderweb.app/trade?version=4', pathname: '/trade' };
+          function sleepMs(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+          function createExactMetaQuotesMt4Dom(opts) {
+            opts = opts || {};
+            const d = createDomDocument();
+            const st = {
+              symbolsTabClicks: 0,
+              showAllMouseOvers: 0,
+              showAllClicks: 0,
+              prematureMenuDismissals: 0,
+              scrolledSteps: 0,
+              buyClicks: 0,
+              okClicks: 0,
+              viewMenuOpened: false,
+              mwVisible: !opts.mwHidden,
+              results: [],
+              logs: []
+            };
+
+            const default20 = [
+              'EURUSD', 'USDJPY', 'GBPUSD', 'GBPJPY', 'XAUUSD',
+              'BTCUSD', 'AUDCHF', 'AUDCAD', 'AUDDKK', 'AUDUSD',
+              'AUDNZD', 'AUDJPY', 'AUDSEK', 'AUDSGD', 'AUDZAR',
+              'AUDNOK', 'NZDUSD', 'TRYZAR', 'NZDCAD', 'USDCHF'
+            ];
+            const extraExpanded = [
+              'USDCAD', 'CHFJPY', 'EURGBP', 'EURAUD', 'EURCHF',
+              'EURJPY', 'EURNZD', 'GBPAUD', 'GBPCHF', 'GBPCAD'
+            ];
+            let showAllExpanded = false;
+            let activePageMenu = null;
+
+            // Global capture-like document mousedown that dismisses .page-menu BEFORE click if mousedown hits first
+            d.documentElement.addEventListener('mousedown', function(ev) {
+              if (activePageMenu && activePageMenu.parentElement && ev.button !== 2) {
+                st.prematureMenuDismissals++;
+                activePageMenu.parentElement.removeChild(activePageMenu);
+                activePageMenu = null;
+              }
+            });
+
+            // Top menubar with View -> Languages / Market Watch / Toolbox
+            const menubar = d.createElement('div');
+            menubar.textContent = 'File View Insert Charts Options Help';
+            const viewTrigger = d.createElement('div');
+            viewTrigger.textContent = 'View';
+            viewTrigger.addEventListener('click', function() {
+              st.viewMenuOpened = true;
+              const prev = d.querySelectorAll('.page-menu');
+              prev.forEach(function(n) { if (n.parentElement) n.parentElement.removeChild(n); });
+              const drop = d.createElement('div');
+              drop.className = 'page-menu context expanded';
+              ['Languages', 'Market Watch', 'Toolbox'].forEach(function(lbl) {
+                const row = d.createElement('div');
+                const sp = d.createElement('span');
+                sp.textContent = lbl;
+                row.appendChild(sp);
+                if (lbl === 'Market Watch') {
+                  row.addEventListener('click', function() {
+                    st.mwVisible = true;
+                    mwPanel.style.display = '';
+                    if (drop.parentElement) drop.parentElement.removeChild(drop);
+                  });
+                }
+                drop.appendChild(row);
+              });
+              d.body.appendChild(drop);
+            });
+            menubar.appendChild(viewTrigger);
+            d.body.appendChild(menubar);
+
+            const ws = d.createElement('div');
+            ws.textContent = 'Balance: 6 260.13 ZAR Equity: 5 142.47 Free margin: 5 100.00';
+            d.body.appendChild(ws);
+
+            // Live MetaQuotes Market Watch structure: div.page-window.market-watch.compact > div > div.b > div.page-block > div > table > tbody
+            const mwPanel = d.createElement('div');
+            mwPanel.className = 'page-window market-watch compact';
+            if (opts.mwHidden) mwPanel.style.display = 'none';
+            const mwWrap = d.createElement('div');
+            const mwB = d.createElement('div');
+            mwB.className = 'b';
+            const mwHdr = d.createElement('div');
+            mwHdr.textContent = 'Market Watch: 00:42:10';
+            mwB.appendChild(mwHdr);
+
+            const pageBlock = d.createElement('div');
+            pageBlock.className = 'page-block';
+            const scrollBox = d.createElement('div');
+            scrollBox.clientHeight = 200;
+            scrollBox.scrollHeight = 200;
+            let currentScrollTop = 0;
+
+            const tbl = d.createElement('table');
+            const tbody = d.createElement('tbody');
+
+            function renderVirtualizedRows() {
+              while (tbody.children.length > 0) tbody.removeChild(tbody.children[0]);
+              const full = showAllExpanded ? default20.concat(extraExpanded) : default20;
+              // Virtualized window: only render 20 rows starting from scroll offset when expanded!
+              const startIdx = (showAllExpanded && currentScrollTop >= 180) ? 10 : 0;
+              const slice = full.slice(startIdx, startIdx + 20);
+              slice.forEach(function(sym) {
+                const tr = d.createElement('tr');
+                const tdSym = d.createElement('td');
+                tdSym.textContent = sym;
+                const tdBid = d.createElement('td');
+                tdBid.textContent = '1.7810';
+                tr.appendChild(tdSym);
+                tr.appendChild(tdBid);
+
+                tr.addEventListener('contextmenu', function(ev) {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  if (activePageMenu && activePageMenu.parentElement) {
+                    activePageMenu.parentElement.removeChild(activePageMenu);
+                  }
+                  const menu = d.createElement('div');
+                  menu.className = 'page-menu context expanded';
+                  const mWrap1 = d.createElement('div');
+                  const mWrap2 = d.createElement('div');
+                  const boxSpan = d.createElement('span');
+                  boxSpan.className = 'box';
+                  const innerSpan = d.createElement('span');
+
+                  ['New Order', 'Chart Window', 'Tick Chart', 'Hide', 'Hide All', 'Symbols', 'Show All'].forEach(function(lbl) {
+                    const itemDiv = d.createElement('div');
+                    const itemSpan = d.createElement('span');
+                    itemSpan.textContent = lbl;
+                    itemDiv.appendChild(itemSpan);
+                    if (lbl === 'Show All') {
+                      itemDiv.addEventListener('mouseover', function() { st.showAllMouseOvers++; });
+                      itemDiv.addEventListener('click', function() {
+                        st.showAllClicks++;
+                        showAllExpanded = true;
+                        scrollBox.scrollHeight = 600;
+                        if (menu.parentElement) menu.parentElement.removeChild(menu);
+                        activePageMenu = null;
+                        renderVirtualizedRows();
+                      });
+                    } else if (lbl === 'New Order') {
+                      itemDiv.addEventListener('click', function() {
+                        if (menu.parentElement) menu.parentElement.removeChild(menu);
+                        activePageMenu = null;
+                        const dlg = d.createElement('div');
+                        dlg.className = 'page-window order-dialog';
+                        const title = d.createElement('div');
+                        title.textContent = 'Order';
+                        const symSel = d.createElement('select');
+                        const opt = d.createElement('option');
+                        opt.value = sym;
+                        opt.textContent = sym;
+                        symSel.appendChild(opt);
+                        const volIn = d.createElement('input');
+                        volIn.id = 'volume';
+                        const slIn = d.createElement('input');
+                        slIn.id = 'sl';
+                        const tpIn = d.createElement('input');
+                        tpIn.id = 'tp';
+                        const cmtIn = d.createElement('input');
+                        cmtIn.id = 'comment';
+                        const buyBtn = d.createElement('button');
+                        buyBtn.textContent = 'Buy by Market';
+                        buyBtn.addEventListener('click', function() {
+                          st.buyClicks++;
+                          const receipt = d.createElement('div');
+                          receipt.className = 'page-window';
+                          const doneTxt = d.createElement('div');
+                          doneTxt.textContent = 'Done #998811 buy ' + (volIn.value || '0.01') + ' ' + sym + ' at 1.7812';
+                          const okBtn = d.createElement('button');
+                          okBtn.textContent = 'OK';
+                          okBtn.addEventListener('click', function() {
+                            st.okClicks++;
+                            if (dlg.parentElement) dlg.parentElement.removeChild(dlg);
+                            if (receipt.parentElement) receipt.parentElement.removeChild(receipt);
+                          });
+                          receipt.appendChild(doneTxt);
+                          receipt.appendChild(okBtn);
+                          d.body.appendChild(receipt);
+                        });
+                        dlg.appendChild(title);
+                        dlg.appendChild(symSel);
+                        dlg.appendChild(volIn);
+                        dlg.appendChild(slIn);
+                        dlg.appendChild(tpIn);
+                        dlg.appendChild(cmtIn);
+                        dlg.appendChild(buyBtn);
+                        d.body.appendChild(dlg);
+                      });
+                    }
+                    innerSpan.appendChild(itemDiv);
+                  });
+
+                  boxSpan.appendChild(innerSpan);
+                  mWrap2.appendChild(boxSpan);
+                  mWrap1.appendChild(mWrap2);
+                  menu.appendChild(mWrap1);
+                  activePageMenu = menu;
+                  d.body.appendChild(menu);
+                });
+
+                tbody.appendChild(tr);
+              });
+            }
+
+            Object.defineProperty(scrollBox, 'scrollTop', {
+              get: function() { return currentScrollTop; },
+              set: function(v) {
+                currentScrollTop = Number(v) || 0;
+                st.scrolledSteps++;
+                renderVirtualizedRows();
+              }
+            });
+
+            renderVirtualizedRows();
+            tbl.appendChild(tbody);
+            scrollBox.appendChild(tbl);
+            pageBlock.appendChild(scrollBox);
+            mwB.appendChild(pageBlock);
+            mwWrap.appendChild(mwB);
+            mwPanel.appendChild(mwWrap);
+            d.body.appendChild(mwPanel);
+
+            // Permanent bottom "Symbols" tab visible outside any menu (trap that previously broke discovery!)
+            const tabStrip = d.createElement('ul');
+            tabStrip.className = 'tabs';
+            const symbolsTab = d.createElement('li');
+            symbolsTab.textContent = 'Symbols';
+            symbolsTab.addEventListener('click', function() { st.symbolsTabClicks++; });
+            const chartTab = d.createElement('li');
+            chartTab.textContent = 'EURUSD, H1';
+            tabStrip.appendChild(symbolsTab);
+            tabStrip.appendChild(chartTab);
+            d.body.appendChild(tabStrip);
+
+            installDoc(d);
+            window.BtechBridge = {
+              onTradeRequiresAuth: function() {},
+              onTradePhase: function() {},
+              onTradeLog: function(m, err, done) { st.logs.push({ m: m, err: err, done: done }); },
+              onSymbolDiscovered: function() {},
+              onTradeResult: function(j) { st.results.push(JSON.parse(j)); }
+            };
+            return st;
+          }
+
+          // Case 1: Open Market Watch + permanent Symbols tab trap + mousedown menu dismissal + virtualized scroll after Show All
+          const st1 = createExactMetaQuotesMt4Dom({ mwHidden: false });
+          eval(${JSONObject.quote(mt4GbpcadJs)});
+          for (let w = 0; w < 220 && !st1.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const openVirtualMwOk =
+            st1.symbolsTabClicks === 0 &&
+            st1.prematureMenuDismissals === 0 &&
+            st1.showAllMouseOvers >= 1 &&
+            st1.showAllClicks === 1 &&
+            st1.scrolledSteps >= 1 &&
+            st1.buyClicks === 1 &&
+            st1.okClicks === 1 &&
+            st1.results.length === 1 &&
+            st1.results[0].status === 'ACCEPTED' &&
+            st1.results[0].actualSymbol === 'GBPCAD';
+
+          // Case 2: Hidden Market Watch -> View -> Market Watch -> Show All -> virtualized scroll -> GBPCAD BUY
+          const st2 = createExactMetaQuotesMt4Dom({ mwHidden: true });
+          eval(${JSONObject.quote(mt4GbpcadJs)});
+          for (let w = 0; w < 240 && !st2.logs.some(function(l) { return l.done; }); w++) { await sleepMs(40); }
+          const hiddenViewMenuToVirtualScrollOk =
+            st2.viewMenuOpened === true &&
+            st2.mwVisible === true &&
+            st2.symbolsTabClicks === 0 &&
+            st2.showAllClicks === 1 &&
+            st2.scrolledSteps >= 1 &&
+            st2.buyClicks === 1 &&
+            st2.results.length === 1 &&
+            st2.results[0].status === 'ACCEPTED' &&
+            st2.results[0].actualSymbol === 'GBPCAD';
+
+          console.log(JSON.stringify({
+            ok: true,
+            openVirtualMwOk: openVirtualMwOk,
+            hiddenViewMenuToVirtualScrollOk: hiddenViewMenuToVirtualScrollOk,
+            st1: st1,
+            st2: { viewMenuOpened: st2.viewMenuOpened, mwVisible: st2.mwVisible, symbolsTabClicks: st2.symbolsTabClicks, showAllClicks: st2.showAllClicks, scrolledSteps: st2.scrolledSteps, results: st2.results }
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Exact MetaQuotes MT4 DOM test failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertTrue("openVirtualMwOk failed: $results", results.getBoolean("openVirtualMwOk"))
+        assertTrue("hiddenViewMenuToVirtualScrollOk failed: $results", results.getBoolean("hiddenViewMenuToVirtualScrollOk"))
+    }
+
     private fun runNodeHarness(testScriptJs: String): JSONObject {
         val nodePath = listOf("/usr/local/bin/node", "/usr/bin/node")
             .firstOrNull { File(it).canExecute() }
