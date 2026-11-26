@@ -112,7 +112,7 @@ fun BtechTopBar(
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color.White)
                     .border(1.dp, extra.line, RoundedCornerShape(10.dp))
-                    .padding(2.dp),
+                    .padding(4.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Image(

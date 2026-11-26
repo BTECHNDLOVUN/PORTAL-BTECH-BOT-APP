@@ -33,6 +33,35 @@ enum class NavStyle(val id: String, val title: String, val description: String) 
     }
 }
 
+enum class BubbleGlowStyle(
+    val id: String,
+    val label: String,
+    val hex: String,
+) {
+    AUTO("auto", "Auto Cycle", "#84CC16"),
+    PRIME("prime", "Prime Color", "#9138EE"),
+    LIME("lime", "Lime", "#84CC16"),
+    PURPLE("purple", "Purple", "#9138EE"),
+    BLUE("blue", "Blue", "#2563EB"),
+    DARK_STYLE("dark_style", "Dark Style", "#1E293B"),
+    ORANGE_RED("orange_red", "Orange Red", "#FF4500"),
+    PINK_RED("pink_red", "Pink Red", "#FF1E6E");
+
+    companion object {
+        val CYCLE_HEX_COLORS = listOf(
+            LIME.hex,
+            PURPLE.hex,
+            BLUE.hex,
+            DARK_STYLE.hex,
+            ORANGE_RED.hex,
+            PINK_RED.hex,
+        )
+
+        fun fromId(id: String?): BubbleGlowStyle =
+            entries.firstOrNull { it.id.equals(id?.trim(), ignoreCase = true) } ?: AUTO
+    }
+}
+
 data class MarketSymbol(
     val symbol: String,
     val description: String,
@@ -654,5 +683,11 @@ object BrokerCatalog {
             }
             else -> withScheme
         }
+    }
+
+    fun sanitizeTerminalUrlForDisplay(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return ""
+        return trimmed.substringBefore("#").substringBefore("?")
     }
 }

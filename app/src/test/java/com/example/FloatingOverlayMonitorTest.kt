@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.BtechPreferencesRepository
+import com.example.model.BubbleGlowStyle
 import com.example.service.ExecutionStepId
 import com.example.service.ExecutionStepStatus
 import com.example.service.FloatingOverlayMonitor
@@ -116,6 +118,8 @@ class FloatingOverlayMonitorTest {
         assertTrue(mt5Script.contains("readUsedMarginNumeric"))
         assertTrue(mt5Script.contains("cleanSymbolLabel"))
         assertTrue(mt5Script.contains("findScopedResultOkButton"))
+        assertTrue(mt5Script.contains("findRequoteDialogAction"))
+        assertTrue(mt5Script.contains("applyOrderDeviationIfPresent"))
         assertTrue(mt5Script.contains("dismissTradeResult"))
         assertTrue(mt5Script.contains("isExplicitAcceptanceStatusText"))
         assertTrue(mt5Script.contains("singleClick"))
@@ -127,6 +131,8 @@ class FloatingOverlayMonitorTest {
         assertFalse(mt5Script.contains("fallbackConfirmed"))
         assertFalse(mt5Script.contains("buttonCycleCompleted"))
         assertFalse(mt5Script.contains("Retrying Trade"))
+        assertFalse(mt5Script.contains("Waiting 2s before Trade"))
+        assertTrue(mt5Script.contains("schedule(runNextTrade, 2000)"))
         assertFalse(mt5Script.contains("deepAll('body *')"))
         assertFalse(mt5Script.contains("queryDeepAll('body *')"))
 
@@ -290,10 +296,15 @@ class FloatingOverlayMonitorTest {
         assertEquals(5, OverlayStateBus.snapshot.value.executionSteps.size)
         assertEquals("Trade 10/10 confirmed", OverlayStateBus.snapshot.value.executionSteps[4].label)
 
-        OverlayStateBus.completeExecutionSuccess("All 10/10 trades confirmed · #1089004314 buy 0.03 XAUUSD")
+        OverlayStateBus.completeExecutionSuccess(
+            "All 10/10 trades confirmed · #1089004314 buy 0.03 XAUUSD",
+            totalTrades = 10,
+        )
         snap = OverlayStateBus.snapshot.value
-        assertEquals(5, snap.executionSteps.size)
-        assertEquals("Trade 10/10 confirmed", snap.executionSteps[4].label)
+        assertEquals(6, snap.executionSteps.size)
+        assertEquals("Executed", snap.executionSteps[4].label)
+        assertEquals(ExecutionStepId.TRADE_COMPLETED, snap.executionSteps[5].id)
+        assertEquals("Trade 10/10 completed", snap.executionSteps[5].label)
         assertTrue(snap.executionCompleted)
         assertFalse(snap.isExecuting)
         assertEquals(1f, snap.executionProgress)
@@ -319,5 +330,36 @@ class FloatingOverlayMonitorTest {
 
         OverlayStateBus.updateSnapshot { it.copy(isDarkTheme = false) }
         assertFalse(OverlayStateBus.snapshot.value.isDarkTheme)
+    }
+
+    @Test
+    fun `BubbleGlowStyle exposes all 6 colors and persists through repository and OverlayStateBus`() = runBlocking {
+        assertEquals(6, BubbleGlowStyle.CYCLE_HEX_COLORS.size)
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.LIME.hex))
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.PURPLE.hex))
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.BLUE.hex))
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.DARK_STYLE.hex))
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.ORANGE_RED.hex))
+        assertTrue(BubbleGlowStyle.CYCLE_HEX_COLORS.contains(BubbleGlowStyle.PINK_RED.hex))
+        assertEquals(BubbleGlowStyle.AUTO, BubbleGlowStyle.fromId(null))
+        assertEquals(BubbleGlowStyle.PRIME, BubbleGlowStyle.fromId("prime"))
+        assertEquals(BubbleGlowStyle.ORANGE_RED, BubbleGlowStyle.fromId("orange_red"))
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = BtechPreferencesRepository(context)
+        repo.setBubbleGlowStyle(BubbleGlowStyle.PRIME)
+        val savedPrime = repo.dataFlow.first()
+        assertEquals(BubbleGlowStyle.PRIME, savedPrime.bubbleGlowStyle)
+
+        repo.setBubbleGlowStyle(BubbleGlowStyle.PINK_RED)
+        val saved = repo.dataFlow.first()
+        assertEquals(BubbleGlowStyle.PINK_RED, saved.bubbleGlowStyle)
+
+        OverlayStateBus.updateSnapshot { it.copy(bubbleGlowStyle = saved.bubbleGlowStyle) }
+        assertEquals(BubbleGlowStyle.PINK_RED, OverlayStateBus.snapshot.value.bubbleGlowStyle)
+
+        // Reset defaults
+        repo.setBubbleGlowStyle(BubbleGlowStyle.AUTO)
+        OverlayStateBus.updateSnapshot { it.copy(bubbleGlowStyle = BubbleGlowStyle.AUTO) }
     }
 }

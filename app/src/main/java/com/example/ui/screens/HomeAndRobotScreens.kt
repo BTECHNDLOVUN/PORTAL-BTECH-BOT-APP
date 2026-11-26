@@ -142,20 +142,13 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Tip: Connect your MT4/MT5 account under Meta, pick symbols, then press Start or Simulate Trade.",
+                        text = "Tip: Connect your MT4/MT5 account under Meta, pick symbols, then press Start or test trades under Execution log.",
                         style = MaterialTheme.typography.bodySmall,
                         color = extra.muted,
                         textAlign = TextAlign.Center,
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            FloatingBalanceMonitorCard(
-                state = state,
-                onToggleBalanceMonitor = onToggleBalanceMonitor,
-                onRefreshBalance = onRefreshBalance,
-            )
         }
         return
     }
@@ -225,49 +218,6 @@ fun HomeScreen(
                     modifier = Modifier
                         .weight(1f)
                         .testTag("robot_info_button"),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Simulate Trade Test Action (requested by user for testing WebView & Portal pipeline)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Button(
-                    onClick = onSimulateTradeClick,
-                    enabled = !state.isSimulatingTrade,
-                    modifier = Modifier
-                        .weight(1.4f)
-                        .height(48.dp)
-                        .testTag("simulate_trade_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Bolt,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (state.isSimulatingTrade) "EXECUTING..." else "SIMULATE TRADE",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                    )
-                }
-
-                BtechSecondaryButton(
-                    text = "WEB TERMINAL",
-                    onClick = onOpenWebTerminal,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("open_web_terminal_button"),
                 )
             }
 
@@ -436,142 +386,9 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            FloatingBalanceMonitorCard(
-                state = state,
-                onToggleBalanceMonitor = onToggleBalanceMonitor,
-                onRefreshBalance = onRefreshBalance,
-            )
-
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
-    }
-}
-
-@Composable
-private fun FloatingBalanceMonitorCard(
-    state: AppUiState,
-    onToggleBalanceMonitor: () -> Unit,
-    onRefreshBalance: () -> Unit,
-) {
-    val extra = LocalBtechColors.current
-    BtechCard(padding = PaddingValues(14.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Floating Balance Monitor",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = if (state.balanceUpdatedAt.isNotBlank()) {
-                        "${state.balanceStatus} · ${state.balanceUpdatedAt}"
-                    } else {
-                        state.balanceStatus
-                    },
-                    fontSize = 10.sp,
-                    color = extra.muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            BtechStatusPill(
-                text = if (state.isBalanceMonitorRunning) "OVERLAY ON" else "READY",
-                containerColor = if (state.isBalanceMonitorRunning) extra.greenContainer else extra.surface2,
-                contentColor = if (state.isBalanceMonitorRunning) extra.green else extra.muted,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp),
-                color = extra.surface2,
-                border = BorderStroke(1.dp, extra.line),
-            ) {
-                Column(modifier = Modifier.padding(9.dp)) {
-                    Text("BALANCE", fontSize = 9.sp, color = extra.muted, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = state.accountBalance,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = extra.green,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp),
-                color = extra.surface2,
-                border = BorderStroke(1.dp, extra.line),
-            ) {
-                Column(modifier = Modifier.padding(9.dp)) {
-                    Text("EQUITY", fontSize = 9.sp, color = extra.muted, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = state.accountEquity,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp),
-                color = extra.surface2,
-                border = BorderStroke(1.dp, extra.line),
-            ) {
-                Column(modifier = Modifier.padding(9.dp)) {
-                    Text("FLOAT P/L", fontSize = 9.sp, color = extra.muted, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = state.accountFloatingPl,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (state.accountFloatingPl.startsWith("-")) extra.red else extra.green,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BtechPrimaryButton(
-                text = if (state.isBalanceMonitorRunning) "STOP OVERLAY" else "OPEN BALANCE OVERLAY",
-                onClick = onToggleBalanceMonitor,
-                containerColor = if (state.isBalanceMonitorRunning) extra.red else MaterialTheme.colorScheme.primary,
-                contentColor = if (state.isBalanceMonitorRunning) Color.White else MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier
-                    .weight(1.6f)
-                    .testTag("floating_balance_monitor_button"),
-            )
-            BtechSecondaryButton(
-                text = "REFRESH",
-                onClick = onRefreshBalance,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("refresh_balance_button"),
-            )
-        }
     }
 }
 

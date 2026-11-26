@@ -8,8 +8,15 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,8 +102,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -109,7 +118,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
+import com.example.R
 import com.example.model.BrokerCatalog
+import com.example.model.BubbleGlowStyle
 import com.example.model.NavStyle
 import com.example.model.SimulatedSignalRequest
 import com.example.model.TradeDirection
@@ -118,6 +129,7 @@ import com.example.ui.components.BtechCard
 import com.example.ui.components.BtechPrimaryButton
 import com.example.ui.components.BtechSecondaryButton
 import com.example.ui.components.BtechStatusPill
+import com.example.ui.components.GlowingBubbleAvatar
 import com.example.ui.components.PageHeader
 import com.example.ui.components.TradeExecutionTrackerCard
 import com.example.ui.theme.AccentSwatches
@@ -139,6 +151,7 @@ fun ProfileScreen(
     onSelectAccentHex: (String) -> Unit,
     onSaveCustomColors: (List<String>) -> Unit = {},
     onSelectNavStyle: (NavStyle) -> Unit,
+    onSelectBubbleGlowStyle: (BubbleGlowStyle) -> Unit = {},
 ) {
     val extra = LocalBtechColors.current
     var showEditName by remember { mutableStateOf(false) }
@@ -289,6 +302,93 @@ fun ProfileScreen(
                     Text("CUSTOM COLOUR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
+
+            Spacer(modifier = Modifier.height(18.dp))
+            HorizontalDivider(color = extra.line)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Floating bubble glow", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        text = "Outer glowing aura when the robot is running. Choose Auto Cycle, Prime Color (follows theme), or a fixed colour.",
+                        fontSize = 11.sp,
+                        color = extra.muted,
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                BubbleGlowMiniPreview(
+                    glowStyle = state.bubbleGlowStyle,
+                    primeColor = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            BubbleGlowStyle.entries.chunked(2).forEach { rowStyles ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    rowStyles.forEach { style ->
+                        val active = state.bubbleGlowStyle == style
+                        val dotBrush = when (style) {
+                            BubbleGlowStyle.AUTO -> Brush.sweepGradient(
+                                BubbleGlowStyle.CYCLE_HEX_COLORS.map { Color(it.toColorInt()) } +
+                                    Color(BubbleGlowStyle.LIME.hex.toColorInt())
+                            )
+                            BubbleGlowStyle.PRIME -> SolidColor(MaterialTheme.colorScheme.primary)
+                            else -> SolidColor(Color(style.hex.toColorInt()))
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onSelectBubbleGlowStyle(style) }
+                                .testTag("bubble_glow_${style.id}"),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (active) extra.accentSoft else extra.surface2,
+                            border = BorderStroke(
+                                width = if (active) 1.5.dp else 1.dp,
+                                color = if (active) MaterialTheme.colorScheme.primary else extra.line,
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(dotBrush)
+                                        .border(1.dp, Color.White.copy(alpha = 0.7f), CircleShape),
+                                )
+                                Spacer(modifier = Modifier.width(7.dp))
+                                Text(
+                                    text = style.label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                    if (rowStyles.size < 2) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(18.dp))
@@ -377,6 +477,22 @@ fun ProfileScreen(
             },
         )
     }
+}
+
+@Composable
+private fun BubbleGlowMiniPreview(glowStyle: BubbleGlowStyle, primeColor: Color) {
+    val extra = LocalBtechColors.current
+    GlowingBubbleAvatar(
+        glowEnabled = true,
+        glowStyle = glowStyle,
+        primeColor = primeColor,
+        bubbleBg = if (extra.isDark) Color(0xFF102743) else Color.White,
+        idleBorderColor = extra.line,
+        coreSize = 40.dp,
+        outerSize = 58.dp,
+        contentDescription = "Floating bubble glow preview",
+        modifier = Modifier.testTag("bubble_glow_preview"),
+    )
 }
 
 @Composable
@@ -1110,7 +1226,7 @@ fun ExecutionLogsScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BtechPrimaryButton(
-                text = "SIMULATE TRADE",
+                text = "TRADE TESTING",
                 onClick = onSimulateClick,
                 modifier = Modifier.weight(1f),
             )
@@ -1173,7 +1289,7 @@ fun ExecutionLogsScreen(
                 Spacer(modifier = Modifier.height(6.dp))
                 if (state.logs.isEmpty()) {
                     Text(
-                        text = ">> No events yet.\n>> 1. Authenticate broker login under Meta.\n>> 2. Add a symbol under Symbols.\n>> 3. Tap SIMULATE TRADE.",
+                        text = ">> No events yet.\n>> 1. Authenticate broker login under Meta.\n>> 2. Add a symbol under Symbols.\n>> 3. Tap TRADE TESTING.",
                         color = Color(0xFFE9F3FF),
                         fontFamily = JetBrainsMono,
                         fontSize = 11.sp,
@@ -1354,6 +1470,12 @@ fun SimulateTradeDialog(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Make sure you enter your broker's minimum lot for this symbol to avoid errors.",
+                    fontSize = 10.sp,
+                    color = extra.muted,
+                )
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1392,7 +1514,7 @@ fun SimulateTradeDialog(
         },
         confirmButton = {
             BtechPrimaryButton(
-                text = "SEND TO WEB TERMINAL",
+                text = "TEST TRADE",
                 onClick = {
                     onConfirmSimulate(
                         SimulatedSignalRequest(
@@ -1546,7 +1668,7 @@ fun WebTerminalInspectorDialog(
                 HorizontalDivider(color = extra.line)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Editable URL bar + Go button
+                // Editable URL bar + Go button (matched 42.dp compact height)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1554,24 +1676,41 @@ fun WebTerminalInspectorDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    OutlinedTextField(
-                        value = urlBarText,
-                        onValueChange = { urlBarText = it },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
-                        placeholder = { Text("Enter terminal URL...", fontSize = 11.sp, color = extra.muted) },
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp),
                         shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = extra.line,
-                            cursorColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, extra.line),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (urlBarText.isEmpty()) {
+                                Text("Enter terminal URL...", fontSize = 11.sp, color = extra.muted)
+                            }
+                            BasicTextField(
+                                value = urlBarText,
+                                onValueChange = { urlBarText = it },
+                                singleLine = true,
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                     Button(
                         onClick = { webEngine.navigateToUrl(urlBarText) },
+                        modifier = Modifier.height(42.dp),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1581,39 +1720,60 @@ fun WebTerminalInspectorDialog(
                     }
                 }
 
-                // Quick terminal shortcuts
+                // Quick terminal shortcuts + inline I'M LOGGED IN button below GO
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    listOf(
-                        "JM MT5" to BrokerCatalog.JUSTMARKETS_MT5_URL,
-                        "MT4 Web" to BrokerCatalog.METAQUOTES_MT4_URL,
-                        "MQ MT5" to BrokerCatalog.METAQUOTES_MT5_URL,
-                    ).forEach { (label, endpoint) ->
-                        val selected = webStatus.currentUrl.startsWith(endpoint)
-                        Button(
-                            onClick = {
-                                urlBarText = endpoint
-                                webEngine.navigateToUrl(endpoint)
-                            },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (selected) MaterialTheme.colorScheme.primary else extra.line,
-                            ),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (selected) extra.accentSoft else extra.surface2,
-                                contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            ),
-                        ) {
-                            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            "JM MT5" to BrokerCatalog.JUSTMARKETS_MT5_URL,
+                            "MT4 Web" to BrokerCatalog.METAQUOTES_MT4_URL,
+                            "MQ MT5" to BrokerCatalog.METAQUOTES_MT5_URL,
+                        ).forEach { (label, endpoint) ->
+                            val selected = webStatus.currentUrl.startsWith(endpoint)
+                            Button(
+                                onClick = {
+                                    urlBarText = endpoint
+                                    webEngine.navigateToUrl(endpoint)
+                                },
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else extra.line,
+                                ),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (selected) extra.accentSoft else extra.surface2,
+                                    contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                ),
+                            ) {
+                                Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
+                    }
+                    Button(
+                        onClick = onConfirmSession,
+                        modifier = Modifier
+                            .height(30.dp)
+                            .testTag("confirm_manual_session_button"),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Text("I'M LOGGED IN", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -1662,57 +1822,6 @@ fun WebTerminalInspectorDialog(
                     )
                 }
 
-                run {
-                    val diag = webStatus.viewportDiagnostics
-                    val modeTag = when {
-                        !webStatus.isDesktopMode -> "MOBILE"
-                        diag?.documentStartSupported == true -> "DOC-START"
-                        diag?.fallbackApplied == true -> "FALLBACK"
-                        else -> "DESKTOP"
-                    }
-                    val diagText = if (diag != null && diag.measuredAtMs > 0L) {
-                        val metaShort = diag.metaViewport.ifBlank { "none" }.take(38)
-                        "Layout: ${diag.innerWidth}x${diag.innerHeight} CSS (client=${diag.clientWidth}, vv=${diag.visualViewportWidth}) · Target ${webStatus.desktopViewportWidth}px · $modeTag · meta=$metaShort"
-                    } else {
-                        "Viewport Target: ${webStatus.desktopViewportWidth}px ($modeTag) · Tap Measure to inspect CSS layout"
-                    }
-                    val diagColor = when {
-                        !webStatus.isDesktopMode -> extra.muted
-                        diag == null || diag.measuredAtMs == 0L -> extra.muted
-                        diag.layoutIsDesktopWidth -> extra.green
-                        else -> extra.red
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(extra.surface2)
-                            .padding(horizontal = 12.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = diagText,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = diagColor,
-                            maxLines = 2,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("viewport_diagnostics_text"),
-                        )
-                        Text(
-                            text = "Measure",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable { webEngine.collectDesktopViewportDiagnostics() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .testTag("measure_viewport_button"),
-                        )
-                    }
-                }
-
                 AndroidView(
                     factory = { ctx ->
                         FrameLayout(ctx).also { container ->
@@ -1727,28 +1836,6 @@ fun WebTerminalInspectorDialog(
                         .fillMaxWidth()
                         .weight(1f),
                 )
-
-                HorizontalDivider(color = extra.line)
-                Surface(
-                    color = extra.surface2,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        BtechPrimaryButton(
-                            text = "I'M LOGGED IN — SAVE SESSION",
-                            onClick = onConfirmSession,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("confirm_manual_session_button"),
-                        )
-                    }
-                }
             }
         }
     }

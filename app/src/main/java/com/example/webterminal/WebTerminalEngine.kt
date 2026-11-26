@@ -1164,20 +1164,21 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 ) {
                     val desc = error?.description?.toString() ?: "Failed to load web terminal"
                     val failingUrl = request?.url?.toString() ?: (view?.url ?: _status.value.currentUrl)
+                    val safeUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(failingUrl)
                     val isMain = request?.isForMainFrame == true
                     if (isMain) {
                         OverlayStateBus.appendLog(
-                            "WebView error (url=$failingUrl): $desc",
+                            "WebView error (url=$safeUrl): $desc",
                             isError = true,
                         )
                         _status.value = _status.value.copy(
                             isLoading = false,
-                            lastError = "$desc ($failingUrl)",
+                            lastError = "$desc ($safeUrl)",
                         )
-                        finishAuthWithError("Cannot reach web terminal ($desc).\nURL: $failingUrl")
-                        finishTradeWithError("Cannot reach web terminal ($desc) at $failingUrl.")
+                        finishAuthWithError("Cannot reach web terminal ($desc).\nURL: $safeUrl")
+                        finishTradeWithError("Cannot reach web terminal ($desc) at $safeUrl.")
                     } else {
-                        android.util.Log.d("BtechWebView", "Subresource error ($failingUrl): $desc")
+                        android.util.Log.d("BtechWebView", "Subresource error ($safeUrl): $desc")
                     }
                 }
 
@@ -1189,11 +1190,12 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                     if (errorResponse != null && errorResponse.statusCode >= 400) {
                         val code = errorResponse.statusCode
                         val failingUrl = request?.url?.toString() ?: (view?.url ?: _status.value.currentUrl)
+                        val safeUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(failingUrl)
                         val isMain = request?.isForMainFrame == true
                         if (isMain) {
-                            val msg = "Broker terminal returned HTTP $code (${errorResponse.reasonPhrase.ifBlank { "Error" }}).\nURL: $failingUrl"
+                            val msg = "Broker terminal returned HTTP $code (${errorResponse.reasonPhrase.ifBlank { "Error" }}).\nURL: $safeUrl"
                             OverlayStateBus.appendLog(
-                                "WebView HTTP $code (url=$failingUrl)",
+                                "WebView HTTP $code (url=$safeUrl)",
                                 isError = true,
                             )
                             _status.value = _status.value.copy(
@@ -1202,7 +1204,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                             )
                             finishAuthWithError("$msg\nTap 'Inspect Live Web Terminal' to verify the endpoint.")
                         } else {
-                            android.util.Log.d("BtechWebView", "Subresource HTTP $code ($failingUrl)")
+                            android.util.Log.d("BtechWebView", "Subresource HTTP $code ($safeUrl)")
                         }
                     }
                 }
@@ -1215,17 +1217,18 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                     handler?.cancel()
                     val mainUrl = view?.url ?: _status.value.currentUrl
                     val failingUrl = error?.url ?: mainUrl
+                    val safeUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(failingUrl)
                     val mainHost = runCatching { android.net.Uri.parse(mainUrl).host }.getOrNull()
                     val failHost = runCatching { android.net.Uri.parse(failingUrl).host }.getOrNull()
                     val isMainHost = failingUrl == mainUrl || (mainHost != null && mainHost.equals(failHost, ignoreCase = true))
                     if (isMainHost) {
-                        val msg = "SSL certificate error (primaryError=${error?.primaryError}) connecting to $failingUrl"
-                        OverlayStateBus.appendLog("WebView SSL error ($failingUrl): primaryError=${error?.primaryError}", isError = true)
+                        val msg = "SSL certificate error (primaryError=${error?.primaryError}) connecting to $safeUrl"
+                        OverlayStateBus.appendLog("WebView SSL error ($safeUrl): primaryError=${error?.primaryError}", isError = true)
                         _status.value = _status.value.copy(isLoading = false, lastError = msg)
                         finishAuthWithError(msg)
                         finishTradeWithError(msg)
                     } else {
-                        android.util.Log.d("BtechWebView", "Ignored subresource SSL error ($failingUrl)")
+                        android.util.Log.d("BtechWebView", "Ignored subresource SSL error ($safeUrl)")
                     }
                 }
 
@@ -1607,10 +1610,11 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
             }
 
             pendingAuthCallback = onResult
+            val safeDisplayUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(terminalUrl)
             OverlayStateBus.updateSnapshot {
-                it.copy(statusDetail = "Connecting to $terminalUrl...")
+                it.copy(statusDetail = "Connecting to $safeDisplayUrl...")
             }
-            OverlayStateBus.appendLog("Loading ${platform.label} Web Terminal: $terminalUrl")
+            OverlayStateBus.appendLog("Loading ${platform.label} Web Terminal: $safeDisplayUrl")
 
             val runScript = {
                 if (pendingAuthCallback != null) {
@@ -1652,8 +1656,9 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                     }
                     val pct = _status.value.progress
                     val errHint = _status.value.lastError?.let { " ($it)" } ?: ""
+                    val safeDisplayUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(terminalUrl)
                     finishAuthWithError(
-                        "Connection timed out after ${AUTH_TIMEOUT_MS / 1000}s at $pct% on $terminalUrl$errHint. Check internet/VPN or tap 'View Live WebView' to sign in directly."
+                        "Connection timed out after ${AUTH_TIMEOUT_MS / 1000}s at $pct% on $safeDisplayUrl$errHint. Check internet/VPN or tap 'View Live WebView' to sign in directly."
                     )
                 }
             }
@@ -2038,6 +2043,12 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
         if (upper != "DONE" && upper != "UNKNOWN" && upper != "ERROR") {
             resetPhaseStallWatchdog(runId)
         }
+        val signalTotal = (activeTradeSignal?.tradeCount ?: 1).coerceAtLeast(1)
+        val prepareLabel = if (signalTotal > 1) "Preparing trades" else "Preparing trade"
+        val executingLabel = if (signalTotal > 1) "Executing trades" else "Executing trade"
+        val prepareAlreadyDone = OverlayStateBus.snapshot.value.executionSteps.any {
+            it.key == "PREPARE" && it.status == ExecutionStepStatus.COMPLETED
+        }
         when {
             upper == "SIGNAL" -> OverlayStateBus.updateDynamicStep(
                 key = ExecutionStepId.SIGNAL_RECEIVED.name,
@@ -2112,7 +2123,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 stepId = ExecutionStepId.SELECTING_SYMBOL,
                 status = ExecutionStepStatus.ACTIVE,
                 label = "Selecting symbol",
-                progress = 0.64f,
+                progress = 0.62f,
                 detail = detail,
             )
             upper == "SYMBOL_SELECTED" -> OverlayStateBus.updateDynamicStep(
@@ -2120,81 +2131,124 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 stepId = ExecutionStepId.SELECTING_SYMBOL,
                 status = ExecutionStepStatus.COMPLETED,
                 label = "Symbol selected",
-                progress = 0.70f,
+                progress = 0.66f,
                 detail = detail,
             )
-            upper == "PREPARE" -> OverlayStateBus.updateDynamicStep(
-                key = "PREPARE",
-                stepId = ExecutionStepId.PREPARING_TRADE,
-                status = ExecutionStepStatus.ACTIVE,
-                label = "Preparing trade",
-                progress = 0.76f,
-                detail = detail,
-            )
-            upper == "PREPARED" -> OverlayStateBus.updateDynamicStep(
-                key = "PREPARE",
-                stepId = ExecutionStepId.PREPARING_TRADE,
-                status = ExecutionStepStatus.COMPLETED,
-                label = "Preparing trade",
-                progress = 0.80f,
-                detail = detail,
-            )
+            upper == "PREPARE" || upper.startsWith("PREPARE:") -> {
+                val parts = upper.split(":")
+                val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                if (!prepareAlreadyDone && idx <= 1) {
+                    OverlayStateBus.updateDynamicStep(
+                        key = "PREPARE",
+                        stepId = ExecutionStepId.PREPARING_TRADE,
+                        status = ExecutionStepStatus.ACTIVE,
+                        label = prepareLabel,
+                        progress = 0.72f,
+                        headerStatus = prepareLabel,
+                        detail = detail,
+                    )
+                } else {
+                    val frac = ((idx - 1).toFloat() / total.toFloat()) * 0.20f
+                    OverlayStateBus.updateDynamicStep(
+                        key = "TRADE",
+                        stepId = ExecutionStepId.EXECUTING_TRADE,
+                        status = ExecutionStepStatus.ACTIVE,
+                        label = executingLabel,
+                        progress = (0.78f + frac).coerceAtMost(0.98f),
+                        headerStatus = if (total > 1) "Executing trade $idx/$total" else executingLabel,
+                        detail = detail,
+                    )
+                }
+            }
+            upper == "PREPARED" || upper.startsWith("PREPARED:") -> {
+                val parts = upper.split(":")
+                val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                if (!prepareAlreadyDone && idx <= 1) {
+                    OverlayStateBus.updateDynamicStep(
+                        key = "PREPARE",
+                        stepId = ExecutionStepId.PREPARING_TRADE,
+                        status = ExecutionStepStatus.COMPLETED,
+                        label = prepareLabel,
+                        progress = 0.76f,
+                        headerStatus = prepareLabel,
+                        detail = detail,
+                    )
+                } else {
+                    val frac = ((idx - 0.8f).coerceAtLeast(0f) / total.toFloat()) * 0.20f
+                    OverlayStateBus.updateDynamicStep(
+                        key = "TRADE",
+                        stepId = ExecutionStepId.EXECUTING_TRADE,
+                        status = ExecutionStepStatus.ACTIVE,
+                        label = executingLabel,
+                        progress = (0.78f + frac).coerceAtMost(0.98f),
+                        headerStatus = if (total > 1) "Executing trade $idx/$total" else executingLabel,
+                        detail = detail,
+                    )
+                }
+            }
             upper.startsWith("TRADE_SUBMIT:") -> {
                 val parts = upper.split(":")
                 val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
-                val total = parts.getOrNull(2)?.toIntOrNull() ?: 1
-                val lbl = if (total > 1) "Executing trade $idx/$total" else "Executing trade"
-                val frac = ((idx - 1).toFloat() / total.coerceAtLeast(1).toFloat()) * 0.16f
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                val hdr = if (total > 1) "Executing trade $idx/$total" else executingLabel
+                val frac = ((idx - 0.65f).coerceAtLeast(0f) / total.toFloat()) * 0.20f
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
                     status = ExecutionStepStatus.ACTIVE,
-                    label = lbl,
-                    progress = 0.82f + frac,
+                    label = executingLabel,
+                    progress = (0.78f + frac).coerceAtMost(0.98f),
+                    headerStatus = hdr,
                     detail = detail,
                 )
             }
             upper.startsWith("TRADE_CONFIRM:") -> {
                 val parts = upper.split(":")
                 val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
-                val total = parts.getOrNull(2)?.toIntOrNull() ?: 1
-                val lbl = if (total > 1) "Waiting for broker confirmation ($idx/$total)" else "Waiting for broker confirmation"
-                val frac = ((idx - 0.5f) / total.coerceAtLeast(1).toFloat()) * 0.16f
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                val hdr = if (total > 1) "Confirming trade $idx/$total" else "Waiting for confirmation"
+                val frac = ((idx - 0.35f).coerceAtLeast(0f) / total.toFloat()) * 0.20f
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
                     status = ExecutionStepStatus.ACTIVE,
-                    label = lbl,
-                    progress = (0.82f + frac).coerceAtMost(0.98f),
+                    label = executingLabel,
+                    progress = (0.78f + frac).coerceAtMost(0.98f),
+                    headerStatus = hdr,
                     detail = detail,
                 )
             }
             upper.startsWith("TRADE_CONFIRMED:") -> {
                 val parts = upper.split(":")
                 val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
-                val total = parts.getOrNull(2)?.toIntOrNull() ?: 1
-                val lbl = if (total > 1) "Trade $idx/$total confirmed" else "Trade confirmed"
-                val frac = (idx.toFloat() / total.coerceAtLeast(1).toFloat()) * 0.16f
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                val hdr = if (total > 1) "Trade $idx/$total confirmed" else "Trade confirmed"
+                val frac = (idx.toFloat() / total.toFloat()) * 0.20f
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
-                    status = if (idx >= total) ExecutionStepStatus.COMPLETED else ExecutionStepStatus.ACTIVE,
-                    label = lbl,
-                    progress = (0.82f + frac).coerceAtMost(0.98f),
+                    status = ExecutionStepStatus.ACTIVE,
+                    label = executingLabel,
+                    progress = (0.78f + frac).coerceAtMost(0.98f),
+                    headerStatus = hdr,
                     detail = detail,
                 )
             }
             upper.startsWith("TERMINAL_CLEAR:") -> {
                 val parts = upper.split(":")
                 val idx = parts.getOrNull(1)?.toIntOrNull() ?: 1
-                val total = parts.getOrNull(2)?.toIntOrNull() ?: 1
-                val lbl = if (total > 1) "Trade $idx/$total dialog cleared" else "Terminal dialog cleared"
+                val total = (parts.getOrNull(2)?.toIntOrNull() ?: signalTotal).coerceAtLeast(1)
+                val hdr = if (total > 1) "Preparing trade ${(idx + 1).coerceAtMost(total)}/$total" else executingLabel
+                val frac = (idx.toFloat() / total.toFloat()) * 0.20f
                 OverlayStateBus.updateDynamicStep(
                     key = "TRADE",
                     stepId = ExecutionStepId.EXECUTING_TRADE,
-                    status = if (idx >= total) ExecutionStepStatus.COMPLETED else ExecutionStepStatus.ACTIVE,
-                    label = lbl,
-                    progress = 0.90f,
+                    status = ExecutionStepStatus.ACTIVE,
+                    label = executingLabel,
+                    progress = (0.78f + frac).coerceAtMost(0.98f),
+                    headerStatus = hdr,
                     detail = detail,
                 )
             }
@@ -2202,7 +2256,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 key = "TRADE",
                 stepId = ExecutionStepId.EXECUTING_TRADE,
                 status = ExecutionStepStatus.ACTIVE,
-                label = "Executing trade",
+                label = executingLabel,
                 progress = 0.86f,
                 detail = detail,
             )
@@ -2210,11 +2264,11 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
                 key = "TRADE",
                 stepId = ExecutionStepId.EXECUTING_TRADE,
                 status = ExecutionStepStatus.ACTIVE,
-                label = "Waiting for broker confirmation",
+                label = executingLabel,
                 progress = 0.94f,
                 detail = detail,
             )
-            upper == "DONE" -> OverlayStateBus.completeExecutionSuccess(detail)
+            upper == "DONE" -> OverlayStateBus.completeExecutionSuccess(detail, totalTrades = signalTotal)
             upper == "UNKNOWN" -> OverlayStateBus.markExecutionUnknown(detail)
             upper == "ERROR" -> OverlayStateBus.failExecution(detail)
         }
@@ -2279,10 +2333,11 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
             isSuccess = isDone && !isError,
         )
         val isUnknown = isDone && isError && step.contains("UNKNOWN", ignoreCase = true)
+        val signalTotal = (activeTradeSignal?.tradeCount ?: 1).coerceAtLeast(1)
         when {
             isUnknown -> OverlayStateBus.markExecutionUnknown(step)
             isDone && isError -> OverlayStateBus.failExecution(step)
-            isDone && !isError -> OverlayStateBus.completeExecutionSuccess(step)
+            isDone && !isError -> OverlayStateBus.completeExecutionSuccess(step, totalTrades = signalTotal)
             else -> OverlayStateBus.updateSnapshot {
                 it.copy(
                     statusPill = if (isError) "ERROR" else if (it.isExecuting) "EXECUTING" else it.statusPill,
@@ -2401,7 +2456,7 @@ class WebTerminalEngine private constructor(private val appContext: Context) {
             }
         } else {
             finishTradeWithError(
-                "Web Terminal requires an authenticated session (open Inspect Live Web Terminal to log in, then tap 'I\\'M LOGGED IN — SAVE SESSION').",
+                "Web Terminal requires an authenticated session (open Inspect Live Web Terminal to log in, then tap 'I\\'M LOGGED IN').",
                 failedStep = ExecutionStepId.AUTHENTICATING_ACCOUNT,
             )
         }

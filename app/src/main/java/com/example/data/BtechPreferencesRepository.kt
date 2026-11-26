@@ -12,6 +12,7 @@ import com.example.data.local.BtechDatabase
 import com.example.data.local.SavedAccountEntity
 import com.example.model.AllowedSymbolConfig
 import com.example.model.BrokerSymbolResolver
+import com.example.model.BubbleGlowStyle
 import com.example.model.DiscoveredBrokerCatalog
 import com.example.model.NavStyle
 import com.example.model.PlatformType
@@ -35,6 +36,7 @@ data class PersistedBtechData(
     val customColors: List<String> = List(16) { "" },
     val isDarkTheme: Boolean = false,
     val navStyle: NavStyle = NavStyle.INDICATOR,
+    val bubbleGlowStyle: BubbleGlowStyle = BubbleGlowStyle.AUTO,
     val profileName: String = "BTECH Client",
     val allowedSymbols: List<AllowedSymbolConfig> = emptyList(),
     val savedAccount: SavedAccount? = null,
@@ -55,6 +57,7 @@ class BtechPreferencesRepository(private val context: Context) {
         val CUSTOM_COLORS = stringPreferencesKey("custom_colors_json")
         val IS_DARK_THEME = booleanPreferencesKey("is_dark_theme")
         val NAV_STYLE = stringPreferencesKey("nav_style")
+        val BUBBLE_GLOW_STYLE = stringPreferencesKey("bubble_glow_style")
         val PROFILE_NAME = stringPreferencesKey("profile_name")
         val ALLOWED_SYMBOLS = stringPreferencesKey("allowed_symbols_json")
         val SAVED_ACCOUNT = stringPreferencesKey("saved_account_json")
@@ -78,6 +81,7 @@ class BtechPreferencesRepository(private val context: Context) {
             customColors = decodeCustomColors(prefs[Keys.CUSTOM_COLORS]),
             isDarkTheme = prefs[Keys.IS_DARK_THEME] ?: false,
             navStyle = NavStyle.fromId(prefs[Keys.NAV_STYLE] ?: NavStyle.INDICATOR.id),
+            bubbleGlowStyle = BubbleGlowStyle.fromId(prefs[Keys.BUBBLE_GLOW_STYLE]),
             profileName = prefs[Keys.PROFILE_NAME] ?: "BTECH Client",
             allowedSymbols = symbolEntities.map { it.toModel() },
             savedAccount = activeAccount,
@@ -154,6 +158,10 @@ class BtechPreferencesRepository(private val context: Context) {
 
     suspend fun setNavStyle(style: NavStyle) {
         context.btechDataStore.edit { it[Keys.NAV_STYLE] = style.id }
+    }
+
+    suspend fun setBubbleGlowStyle(style: BubbleGlowStyle) {
+        context.btechDataStore.edit { it[Keys.BUBBLE_GLOW_STYLE] = style.id }
     }
 
     suspend fun setProfileName(name: String) {

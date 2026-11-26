@@ -460,6 +460,13 @@ fun SymbolConfigScreen(
                 shape = RoundedCornerShape(10.dp),
             )
         }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Make sure you enter your broker's minimum lot for this symbol to avoid errors.",
+            fontSize = 11.sp,
+            color = extra.muted,
+            modifier = Modifier.testTag("lot_minimum_hint"),
+        )
 
         Spacer(modifier = Modifier.height(14.dp))
         Text("DIRECTION", style = MaterialTheme.typography.labelMedium, color = extra.muted)

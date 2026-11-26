@@ -181,7 +181,10 @@ class WebViewLifecycleHeartbeatTest {
         assertTrue(snap.executionCompleted)
         val tradeSteps = snap.executionSteps.filter { it.id == ExecutionStepId.EXECUTING_TRADE }
         assertEquals("Single TRADE row must update in place rather than stacking rows", 1, tradeSteps.size)
-        assertEquals("Trade 3/3 confirmed", tradeSteps.first().label)
+        assertEquals("Executed", tradeSteps.first().label)
+        val completedSteps = snap.executionSteps.filter { it.id == ExecutionStepId.TRADE_COMPLETED }
+        assertEquals(1, completedSteps.size)
+        assertEquals("Trade 3/3 completed", completedSteps.first().label)
     }
 
     // -------------------------------------------------------------------------

@@ -14,13 +14,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
@@ -321,6 +324,7 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
                                     onSelectAccentHex = viewModel::setAccentHex,
                                     onSaveCustomColors = viewModel::saveCustomColors,
                                     onSelectNavStyle = viewModel::setNavStyle,
+                                    onSelectBubbleGlowStyle = viewModel::setBubbleGlowStyle,
                                 )
                             }
 
@@ -385,41 +389,42 @@ fun BtechApp(viewModel: BtechViewModel = viewModel()) {
                 exit = fadeOut(animationSpec = tween(durationMillis = 400)),
                 modifier = Modifier.zIndex(100f),
             ) {
-                BoxWithConstraints(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFFF6F7FC))
+                        .background(Color.White)
                         .testTag("splash_screen_overlay"),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_btech_splash),
-                        contentDescription = stringResource(id = R.string.app_name),
-                        contentScale = if (maxHeight > maxWidth) ContentScale.Crop else ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = Color(0xFF0E1B3A))) {
-                                append("BTECH ")
-                            }
-                            withStyle(SpanStyle(color = Color(0xFF5438EE))) {
-                                append("FINANCE")
-                            }
-                        },
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 1.6.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Visible,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(
-                                bottom = if (maxHeight > maxWidth) (maxHeight * 0.21f) else 24.dp,
-                            ),
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.btech_logo),
+                            contentDescription = stringResource(id = R.string.app_name),
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(136.dp),
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(SpanStyle(color = Color(0xFF0E1B3A))) {
+                                    append("BTECH ")
+                                }
+                                withStyle(SpanStyle(color = Color(0xFF5438EE))) {
+                                    append("FINANCE")
+                                }
+                            },
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Visible,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
 

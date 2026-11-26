@@ -3296,6 +3296,7 @@ object WebTerminalScripts {
               const SIGNAL_ID = $safeSignalId;
               const MAX_CONFIRM_POLLS = $safeConfirmPolls;
               const ACCOUNT_LOGIN = $safeAccountLogin;
+              const ACCOUNT_LOGIN_DIGITS = String(ACCOUNT_LOGIN || '').replace(/\D+/g, '');
 
               $DEEP_DOM_HELPERS
               $ROBOTRADER_DISCOVERY_HELPERS
@@ -3309,7 +3310,7 @@ object WebTerminalScripts {
                 } else if (keyStr === 'SYMBOL_FOUND' || keyStr === 'SYMBOL_SELECTED' || keyStr === 'ERROR' || keyStr === 'DONE' || keyStr === 'UNKNOWN') {
                   window.__btechDiscoveryRunning = false;
                 }
-                if (keyStr === 'PREPARE' || keyStr === 'PREPARED' || keyStr.indexOf('TRADE_') === 0 || keyStr === 'SUBMIT' || keyStr === 'CONFIRM') {
+                if (keyStr.indexOf('PREPARE') === 0 || keyStr.indexOf('TRADE_') === 0 || keyStr === 'SUBMIT' || keyStr === 'CONFIRM') {
                   window.__btechOrderTicketOpen = true;
                 } else if (keyStr === 'ERROR' || keyStr === 'DONE' || keyStr === 'UNKNOWN') {
                   window.__btechOrderTicketOpen = false;
@@ -3794,13 +3795,22 @@ object WebTerminalScripts {
                 ].some(phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(value));
               }
 
+              function isValidTicketToken(rawDigits) {
+                const d = String(rawDigits || '').replace(/\D+/g, '');
+                if (!d || d.length < 4 || d.length > 14) return false;
+                if (ACCOUNT_LOGIN_DIGITS && d === ACCOUNT_LOGIN_DIGITS) return false;
+                return true;
+              }
+
               function collectTradeRowText() {
                 const rows = queryDeepAll('tr, [role="row"], [class*="position"], [class*="order"], [class*="deal"], [class*="trade-row"], [class*="toast"], [role="alert"], [role="dialog"], [class*="modal"]');
                 let combined = '';
                 for (const r of rows) {
                   try {
+                    if (typeof isOrderPanelContainerBox === 'function' && isOrderPanelContainerBox(r) && !isResultPanelContainerBox(r)) continue;
+                    if (r.querySelector && r.querySelector('#volume, input[name="volume"], .trade-input') && (!r.textContent || !/\bdone\b/i.test(r.textContent))) continue;
                     const t = (r.textContent || '').replace(/\s+/g, ' ').trim();
-                    if (t && t.length <= 240) combined += '\n' + t;
+                    if (t && t.length <= 240 && !isBrokerErrorText(t)) combined += '\n' + t;
                   } catch (_) {}
                 }
                 return combined;
@@ -3809,19 +3819,32 @@ object WebTerminalScripts {
               function collectTicketIds(text) {
                 const ids = new Set();
                 const src = text || '';
-                const hashMatches = src.match(/#\d{4,}/g) || [];
-                for (const m of hashMatches) ids.add(m);
-                const labeledMatches = src.match(/(?:\b(?:id|ticket|order|deal|position)\b[\s:#]*)\d{5,12}\b/gi) || [];
-                for (const m of labeledMatches) {
-                  const digits = (m.match(/\d{5,12}/) || [])[0];
-                  if (digits) ids.add('#' + digits);
+                const srcLines = src.split(/\r?\n/);
+                for (const line of srcLines) {
+                  const lineLower = line.toLowerCase();
+                  if (isBrokerErrorText(lineLower)) continue;
+                  const hashMatches = line.match(/#\d{4,}/g) || [];
+                  for (const m of hashMatches) {
+                    const digits = m.slice(1);
+                    if (new RegExp('\\b(?:account|login|server|user|client)\\b[\\s:#]*' + digits + '\\b', 'i').test(line)) continue;
+                    if (isValidTicketToken(digits)) ids.add('#' + digits);
+                  }
+                  const labeledMatches = line.match(/(?:\b(?:id|ticket|order|deal|position)\b[\s:#]*)\d{5,12}\b/gi) || [];
+                  for (const m of labeledMatches) {
+                    const digits = (m.match(/\d{5,12}/) || [])[0];
+                    if (isValidTicketToken(digits)) ids.add('#' + digits);
+                  }
                 }
                 const rowText = collectTradeRowText();
                 const rowLines = rowText.split(/\n+/);
                 for (const line of rowLines) {
+                  if (isBrokerErrorText(line)) continue;
+                  if (/\b(?:account|login|server|balance|equity|free\s*margin|margin)\b/i.test(line)) continue;
                   if (/\b(?:buy|sell)\b/i.test(line) || /\b(?:order|deal|position|ticket|opened|filled)\b/i.test(line)) {
                     const numIds = line.match(/\b\d{7,12}\b/g) || [];
-                    for (const d of numIds) ids.add('#' + d);
+                    for (const d of numIds) {
+                      if (isValidTicketToken(d)) ids.add('#' + d);
+                    }
                   }
                 }
                 return ids;
@@ -3875,20 +3898,53 @@ object WebTerminalScripts {
                 return matches ? matches.length : 0;
               }
 
+              function cleanPriceString(raw) {
+                const trimmed = String(raw || '').trim();
+                if (!trimmed) return '';
+                const compact = trimmed.replace(/[\s\u00A0]+/g, '');
+                const numericCandidate = compact.replace(/,(?=\d{3}(?:\.|$))/g, '').replace(/,/g, '.');
+                const m = numericCandidate.match(/^(-?\d+)\.(\d+)$/);
+                if (!m) return trimmed;
+                const frac = m[2];
+                const hasZeroArtifact = /[1-9]0{5,}\d+$/.test(frac) || (frac.length > 8 && /0{5,}\d+$/.test(frac));
+                const hasNineArtifact = /9{5,}\d*$/.test(frac);
+                if (!hasZeroArtifact && !hasNineArtifact) {
+                  return trimmed;
+                }
+                const num = Number(numericCandidate);
+                if (!isFinite(num)) return trimmed;
+                const roundedStr = num.toPrecision(12);
+                const cleaned = (roundedStr.includes('e') || roundedStr.includes('E'))
+                  ? Number(roundedStr).toFixed(Math.min(8, frac.length)).replace(/\.?0+$/, '')
+                  : String(parseFloat(roundedStr));
+                return cleaned || trimmed;
+              }
+
+              function cleanPricesInText(text) {
+                return String(text || '').replace(/\b\d[\d\s\u00A0,]*\.\d{6,}\b/g, function(match) {
+                  return cleanPriceString(match);
+                });
+              }
+
               function extractDealSummary(text, prevTickets, tradeIdx, statusText) {
                 const combinedText = (text || '') + '\n' + collectTradeRowText();
                 const newTicket = extractFirstNewTicket(combinedText, prevTickets);
                 const dirWord = DIRECTION === 'SELL' ? 'sell' : 'buy';
-                const detailRe = new RegExp('(#\\d{4,})[^\\n]{0,35}\\b(buy|sell)\\b[^\\n]{0,35}\\b([\\d.]+)\\b[^\\n]{0,25}\\bat\\s+([\\d.,\\s]+)', 'i');
+                const detailRe = new RegExp('(#\\d{4,})[^\\n]{0,35}\\b(buy|sell)\\b[^\\n]{0,35}\\b([\\d.]+)\\b[^\\n]{0,25}\\bat\\s+(\\d[\\d.,]*(?:\\s\\d{3}[\\d.,]*)*)', 'i');
                 const detailMatch = combinedText.match(detailRe);
-                if (detailMatch && (!prevTickets.has(detailMatch[1]))) {
-                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + detailMatch[1] + ' ' + detailMatch[2].toLowerCase() + ' ' + detailMatch[3] + ' ' + activeSymbolName + ' at ' + detailMatch[4].trim();
+                if (detailMatch && !prevTickets.has(detailMatch[1]) && isValidTicketToken(detailMatch[1])) {
+                  const cleanPx = cleanPriceString(detailMatch[4]);
+                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + detailMatch[1] + ' ' + detailMatch[2].toLowerCase() + ' ' + detailMatch[3] + ' ' + activeSymbolName + ' at ' + cleanPx;
                 }
+                const cleanStatus = cleanPricesInText(statusText || '');
                 if (newTicket) {
-                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + newTicket + ' ' + dirWord + ' ' + LOT + ' ' + activeSymbolName;
+                  const pxMatch = cleanStatus.match(/\bat\s+(\d[\d.,]*(?:\s\d{3}[\d.,]*)*)/i) ||
+                    combinedText.match(new RegExp(newTicket + '[^\\n]{0,80}\\bat\\s+(\\d[\\d.,]*(?:\\s\\d{3}[\\d.,]*)*)', 'i'));
+                  const pxSuffix = (pxMatch && pxMatch[1]) ? (' at ' + cleanPriceString(pxMatch[1])) : '';
+                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + newTicket + ' ' + dirWord + ' ' + LOT + ' ' + activeSymbolName + pxSuffix;
                 }
-                if (statusText) {
-                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + statusText.slice(0, 120);
+                if (cleanStatus) {
+                  return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + cleanStatus.slice(0, 120);
                 }
                 return 'Trade ' + tradeIdx + '/' + COUNT + ' confirmed · ' + dirWord + ' ' + LOT + ' ' + activeSymbolName;
               }
@@ -4037,6 +4093,7 @@ object WebTerminalScripts {
                 if (commentInput && COMMENT) {
                   setNativeValue(commentInput, COMMENT);
                 }
+                applyOrderDeviationIfPresent(volInput);
 
                 return {
                   volInput: volInput,
@@ -4090,6 +4147,7 @@ object WebTerminalScripts {
                 if (slInput && SL) dispatchMt5TradeValue(slInput, SL);
                 if (tpInput && TP) dispatchMt5TradeValue(tpInput, TP);
                 if (commentInput && COMMENT) dispatchMt5TradeValue(commentInput, COMMENT);
+                applyOrderDeviationIfPresent(volInput);
 
                 return {
                   volInput: volInput,
@@ -4097,6 +4155,54 @@ object WebTerminalScripts {
                   tpInput: tpInput,
                   commentInput: commentInput
                 };
+              }
+
+              // Enables and applies a small Instant Execution deviation/slippage tolerance if exposed
+              // on the order ticket (only when currently unset or 0).
+              function applyOrderDeviationIfPresent(nearInput) {
+                const scope = findOrderScope(nearInput)
+                  || (nearInput && nearInput.closest && nearInput.closest('.trade-form, [role="dialog"], [class*="order"], [class*="modal"], .page-window'))
+                  || null;
+                if (!scope) return false;
+                let applied = false;
+
+                const checkboxes = Array.from(scope.querySelectorAll('input[type="checkbox"], [role="checkbox"], [role="switch"]')).filter(isRenderedVisible);
+                for (let i = 0; i < checkboxes.length; i++) {
+                  const cb = checkboxes[i];
+                  if (cb.disabled || cb.getAttribute('aria-disabled') === 'true') continue;
+                  const wrap = cb.closest('label, .checkbox, .trade-input, div, tr') || cb.parentElement;
+                  const meta = (
+                    (cb.id || '') + ' ' + (cb.name || '') + ' ' +
+                    (cb.getAttribute('aria-label') || '') + ' ' +
+                    (wrap ? (wrap.innerText || wrap.textContent || '') : '')
+                  ).replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!/(?:deviation|slippage|max\s*dev)/.test(meta)) continue;
+                  const checked = cb.type === 'checkbox' ? !!cb.checked : cb.getAttribute('aria-checked') === 'true';
+                  if (!checked) {
+                    singleClick(cb);
+                    applied = true;
+                  }
+                }
+
+                const scopedInputs = Array.from(scope.querySelectorAll('input')).filter(isVisible);
+                const devInput = findOrderFieldInput(
+                  scopedInputs,
+                  ['deviation', 'slippage', 'max deviation', 'max dev'],
+                  ['volume', 'lot', 'size', 'qty', 'stop loss', 'take profit', 'comment', 'sl', 'tp', 'price']
+                );
+                if (devInput && !devInput.disabled && !devInput.readOnly) {
+                  const curVal = String(devInput.value || '').replace(/\s+/g, '').trim();
+                  const curNum = parseFloat(curVal.replace(',', '.'));
+                  if (!curVal || curNum === 0) {
+                    if (PLATFORM === 'MT5') {
+                      dispatchMt5TradeValue(devInput, '20');
+                    } else {
+                      setNativeValue(devInput, '20');
+                    }
+                    applied = true;
+                  }
+                }
+                return applied;
               }
 
               function populateOrderFields() {
@@ -4742,6 +4848,88 @@ object WebTerminalScripts {
                 return '';
               }
 
+              function findBlockingBrokerErrorInDialogs() {
+                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                const alertErr = findVisibleAlertOrErrorText(null);
+                if (alertErr && isBrokerErrorText(alertErr)) return alertErr;
+
+                const formBannerErr = findOrderFormErrorBanner(null);
+                if (formBannerErr && isBrokerErrorText(formBannerErr)) return formBannerErr;
+
+                const boxes = findOpenOrderOrResultPanelBoxes();
+                const extraModals = queryDeepAll('[role="dialog"], [role="alertdialog"], .page-window, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="order" i]').filter(isRenderedVisible);
+                const allBoxes = [];
+                boxes.concat(extraModals).forEach(b => {
+                  if (b && allBoxes.indexOf(b) < 0 && !isInsidePositionOrOrderTable(b) && !isMarketWatchOrMenuBox(b)) {
+                    allBoxes.push(b);
+                  }
+                });
+
+                for (let i = 0; i < allBoxes.length; i++) {
+                  const box = allBoxes[i];
+                  const fullText = normalize(box.innerText || box.textContent);
+                  if (!fullText || fullText.length > 900 || isWorkspaceContainerText(fullText.toLowerCase())) continue;
+                  const nodes = Array.from(box.querySelectorAll('div, span, p, td, th, label, [role="alert"], .error, .warning')).filter(isRenderedVisible);
+                  for (let j = 0; j < nodes.length; j++) {
+                    const n = nodes[j];
+                    if (n.children && n.children.length > 3) continue;
+                    const t = normalize(n.innerText || n.textContent);
+                    if (!t || t.length > 200) continue;
+                    if (isBrokerErrorText(t)) return t;
+                  }
+                  if (isBrokerErrorText(fullText)) {
+                    const lower = fullText.toLowerCase();
+                    for (let k = 0; k < BROKER_ERROR_TERMS.length; k++) {
+                      if (lower.includes(BROKER_ERROR_TERMS[k])) {
+                        const escaped = BROKER_ERROR_TERMS[k].replace(/[.*+?^${'$'}{}()|[\]\\]/g, '\\${'$'}&');
+                        const re = new RegExp('[^.;\\n]*' + escaped + '[^.;\\n]*', 'i');
+                        const m = fullText.match(re);
+                        return (m && m[0]) ? normalize(m[0]).slice(0, 140) : BROKER_ERROR_TERMS[k];
+                      }
+                    }
+                    return fullText.slice(0, 140);
+                  }
+                }
+                return '';
+              }
+
+              // Finds the Accept or Reject button inside an active Instant Execution requote prompt.
+              function findRequoteDialogAction(actionKind) {
+                const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                const boxes = findOpenOrderOrResultPanelBoxes();
+                const extraModals = queryDeepAll('[role="dialog"], [role="alertdialog"], .page-window, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="order" i]').filter(isRenderedVisible);
+                const allBoxes = [];
+                boxes.concat(extraModals).forEach(b => {
+                  if (b && allBoxes.indexOf(b) < 0 && !isInsidePositionOrOrderTable(b) && !isMarketWatchOrMenuBox(b)) {
+                    allBoxes.push(b);
+                  }
+                });
+
+                const targetRe = actionKind === 'reject'
+                  ? /^(?:reject|decline)$/i
+                  : /^(?:accept|accept\s+new\s+price|accept\s+price)$/i;
+
+                for (let i = 0; i < allBoxes.length; i++) {
+                  const box = allBoxes[i];
+                  const boxLower = normalize(box.innerText || box.textContent).toLowerCase();
+                  if (!boxLower || boxLower.length > 1000 || isWorkspaceContainerText(boxLower)) continue;
+                  const btns = Array.from(box.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a')).filter(isRenderedVisible);
+                  const hasAcceptAndReject =
+                    btns.some(b => /^(?:accept|accept\s+new\s+price|accept\s+price)$/i.test(normalize(b.innerText || b.value || b.textContent))) &&
+                    btns.some(b => /^(?:reject|decline)$/i.test(normalize(b.innerText || b.value || b.textContent)));
+                  const isRequoteBox = boxLower.includes('requote') || boxLower.includes('price changed') || hasAcceptAndReject;
+                  if (!isRequoteBox) continue;
+
+                  for (let j = 0; j < btns.length; j++) {
+                    const btn = btns[j];
+                    if (isButtonBusyOrDisabled(btn)) continue;
+                    const lbl = normalize(btn.innerText || btn.value || btn.textContent || btn.getAttribute('aria-label'));
+                    if (targetRe.test(lbl)) return btn;
+                  }
+                }
+                return null;
+              }
+
               async function openMT4NewOrderForRow(rowEl) {
                 const mwPanel = findMarketWatchPanel();
                 const rowTarget = (rowEl && rowEl.isConnected && isRenderedVisible(rowEl) ? rowEl : null) ||
@@ -4801,7 +4989,10 @@ object WebTerminalScripts {
                 async function runNextTrade() {
                   if (isCancelled()) return;
                   currentTrade++;
-                  setPhase('PREPARE', 'Preparing trade ' + currentTrade + '/' + COUNT + ' (' + DIRECTION + ' ' + LOT + ' ' + activeSymbolName + ')...');
+                  setPhase(
+                    'PREPARE:' + currentTrade + ':' + COUNT,
+                    'Trade ' + currentTrade + '/' + COUNT + ': ' + (DIRECTION === 'SELL' ? 'sell' : 'buy') + ' ' + LOT + ' ' + activeSymbolName + '...'
+                  );
                   // On Trade 1, clear ONLY stale result/error dialogs (a clean ready/docked order ticket for activeSymbolName must not self-block).
                   // On Trade 2..N, enforce strict clearance of BOTH prior result AND prior order dialogs before opening a fresh ticket.
                   const needsStrictClear = currentTrade === 1
@@ -4851,6 +5042,30 @@ object WebTerminalScripts {
                       || findOrderFieldInput(postOpenInputs, ['volume', 'lot', 'size', 'qty'], ['stop loss', 'take profit', 'comment']);
                     const postBtn = findOrderActionButton(DIRECTION, postVol);
                     if (!postVol || !postBtn) {
+                      const blockingBrokerErr = findBlockingBrokerErrorInDialogs();
+                      if (blockingBrokerErr) {
+                        const errMsg = confirmedCount > 0
+                          ? ('Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + blockingBrokerErr)
+                          : ('Trade ' + currentTrade + '/' + COUNT + ' rejected: ' + blockingBrokerErr);
+                        await dismissBlockingDialogsAndConfirmClear(6, 1200);
+                        emitTradeResult({
+                          status: 'REJECTED',
+                          platform: PLATFORM,
+                          requestedSymbol: SYMBOL,
+                          actualSymbol: activeSymbolName,
+                          direction: DIRECTION,
+                          lot: LOT,
+                          tradeIndex: currentTrade,
+                          tradeCount: COUNT,
+                          confirmedCount: confirmedCount,
+                          ticket: '',
+                          rawMessage: blockingBrokerErr,
+                          retried: false
+                        });
+                        setPhase('ERROR', errMsg);
+                        log(errMsg, true, true);
+                        return;
+                      }
                       if (openWaitTicks < 14) {
                         schedule(function() {
                           ensureOrderPanelAndSubmit(openWaitTicks + 1);
@@ -4927,8 +5142,8 @@ object WebTerminalScripts {
                     return;
                   }
 
-                  // Pre-click visible error node + ticket footer banner inspection (Screenshot 4 / RoboTrader Part 2 K)
-                  const preError = findVisibleAlertOrErrorText(null) || findOrderFormErrorBanner(refreshedFields.volInput);
+                  // Pre-click visible error node + ticket footer banner + modal inspection (Screenshot 4 / MT4 Trade is disabled)
+                  const preError = findBlockingBrokerErrorInDialogs() || findVisibleAlertOrErrorText(null) || findOrderFormErrorBanner(refreshedFields.volInput);
                   if (preError && isBrokerErrorText(preError)) {
                     const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected before submit: ' + preError;
                     await dismissBlockingDialogsAndConfirmClear(6, 1000);
@@ -5027,7 +5242,10 @@ object WebTerminalScripts {
                       return;
                     }
 
-                    setPhase('PREPARED', 'Verified & Prepared Trade ' + currentTrade + '/' + COUNT + ' (' + DIRECTION + ' ' + LOT + ' ' + verification.verifiedSymbol + ')');
+                    setPhase(
+                      'PREPARED:' + currentTrade + ':' + COUNT,
+                      'Prepared Trade ' + currentTrade + '/' + COUNT + ' (' + DIRECTION + ' ' + LOT + ' ' + verification.verifiedSymbol + ')'
+                    );
 
                     schedule(function() {
                       if (isCancelled()) return;
@@ -5059,6 +5277,7 @@ object WebTerminalScripts {
                       );
 
                       let polls = 0;
+                      let requoteAcceptCount = 0;
                       const maxPolls = MAX_CONFIRM_POLLS;
 
                       async function finishRejectedAndCleanup(rawRejectMsg, formattedErrMsg) {
@@ -5132,7 +5351,6 @@ object WebTerminalScripts {
                           log(finalMsg, false, true);
                         } else {
                           setPhase('TERMINAL_CLEAR:' + currentTrade + ':' + COUNT, 'Terminal clear — preparing Trade ' + (currentTrade + 1) + '/' + COUNT + '...');
-                          log('Waiting 2s before Trade ' + (currentTrade + 1) + '/' + COUNT + '...', false, false);
                           schedule(runNextTrade, 2000);
                         }
                       }
@@ -5141,13 +5359,43 @@ object WebTerminalScripts {
                         if (isCancelled()) return;
                         polls++;
 
+                        // 0. Instant Execution Requote handling (Option A): auto-accept updated price up to 2 times
+                        const requoteAcceptBtn = findRequoteDialogAction('accept');
+                        if (requoteAcceptBtn) {
+                          if (requoteAcceptCount < 2) {
+                            requoteAcceptCount++;
+                            singleClick(requoteAcceptBtn);
+                            setPhase(
+                              'TRADE_CONFIRM:' + currentTrade + ':' + COUNT,
+                              'Requoted price accepted (' + requoteAcceptCount + '/2) — confirming Trade ' + currentTrade + '/' + COUNT + '...'
+                            );
+                            log('Requote received — accepted updated price (' + requoteAcceptCount + '/2)', false, false);
+                            polls = Math.min(polls, Math.max(0, maxPolls - 12));
+                            schedule(pollConfirmation, 450);
+                            return;
+                          }
+                          const requoteRejectBtn = findRequoteDialogAction('reject');
+                          if (requoteRejectBtn) {
+                            singleClick(requoteRejectBtn);
+                          }
+                          const maxRequoteErr = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): Requoted more than 2 times';
+                          await finishRejectedAndCleanup('requote', maxRequoteErr);
+                          return;
+                        }
+
                         const curText = collectDeepText();
                         const curLower = curText.toLowerCase();
                         const okBtn = findScopedResultOkButton();
                         const rawStatusText = extractMt5StatusText(okBtn);
                         const statusText = (rawStatusText && !baseAlertTexts.has(rawStatusText)) ? rawStatusText : '';
 
-                        // 1. Inspect visible status/message/error/.alert nodes first for broker rejections
+                        // 1. Inspect visible alert/dialog/status nodes FIRST for broker rejections (e.g. "Not enough money", "Trade is disabled")
+                        const dialogBrokerErr = findBlockingBrokerErrorInDialogs();
+                        if (dialogBrokerErr && isBrokerErrorText(dialogBrokerErr)) {
+                          const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + dialogBrokerErr.slice(0, 160);
+                          await finishRejectedAndCleanup(dialogBrokerErr, errMsg);
+                          return;
+                        }
                         if (statusText && isBrokerErrorText(statusText)) {
                           const errMsg = 'Trade ' + currentTrade + '/' + COUNT + ' rejected (' + confirmedCount + '/' + COUNT + ' opened): ' + statusText.slice(0, 160);
                           await finishRejectedAndCleanup(statusText, errMsg);
@@ -5239,9 +5487,21 @@ object WebTerminalScripts {
                   schedule(executeSequentialTrades, 200);
                   return;
                 }
+                const earlyErr = findBlockingBrokerErrorInDialogs();
+                if (earlyErr) {
+                  setPhase('SYMBOL_SELECTED', 'Selected ' + activeSymbolName);
+                  schedule(executeSequentialTrades, 50);
+                  return;
+                }
                 if (tries === 0 || tries === 5) {
                   await openOrderFormForCurrentPlatform();
                   if (isCancelled()) return;
+                  const afterOpenErr = findBlockingBrokerErrorInDialogs();
+                  if (afterOpenErr) {
+                    setPhase('SYMBOL_SELECTED', 'Selected ' + activeSymbolName);
+                    schedule(executeSequentialTrades, 50);
+                    return;
+                  }
                 }
                 if (tries < 12) {
                   schedule(function() { waitForOrderControlsThenRun(tries + 1); }, 300);
@@ -5563,6 +5823,10 @@ object WebTerminalScripts {
                 clearStaleDialogsBeforeNewSignal: clearStaleDialogsBeforeNewSignal,
                 isBrokerErrorText: isBrokerErrorText,
                 findOrderFormErrorBanner: findOrderFormErrorBanner,
+                findBlockingBrokerErrorInDialogs: findBlockingBrokerErrorInDialogs,
+                collectTicketIds: collectTicketIds,
+                cleanPriceString: cleanPriceString,
+                extractDealSummary: extractDealSummary,
                 inspectOrderExecutionType: inspectOrderExecutionType,
                 ensureExecutionTypeForSignal: ensureExecutionTypeForSignal,
                 verifySelectedInstrumentAndOrderForm: verifySelectedInstrumentAndOrderForm

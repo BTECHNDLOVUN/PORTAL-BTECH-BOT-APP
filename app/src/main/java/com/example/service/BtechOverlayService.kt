@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
@@ -22,6 +23,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -31,9 +33,11 @@ import android.content.res.ColorStateList
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.toColorInt
 import com.example.MainActivity
 import com.example.R
+import com.example.model.BubbleGlowStyle
 import com.example.webterminal.WebTerminalEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +45,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.sin
 
 class BtechOverlayService : Service() {
 
@@ -72,6 +78,13 @@ class BtechOverlayService : Service() {
 
     private var webViewFallbackHost: FrameLayout? = null
     private var bubbleView: View? = null
+    private var bubbleGlowView: View? = null
+    private var bubbleCoreFrame: FrameLayout? = null
+    private var bubbleGlowAnimator: ValueAnimator? = null
+    private var activeGlowRunning: Boolean = false
+    private var activeGlowStyle: BubbleGlowStyle = BubbleGlowStyle.AUTO
+    private var activeAccentHex: String = "#9138EE"
+    private var currentGlowPhase: Float = 0f
     private var bubbleParams: WindowManager.LayoutParams? = null
 
     private var panelView: View? = null
@@ -141,6 +154,8 @@ class BtechOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        bubbleGlowAnimator?.cancel()
+        bubbleGlowAnimator = null
         serviceScope.cancel()
         removeViewsSafely()
         super.onDestroy()
@@ -177,6 +192,11 @@ class BtechOverlayService : Service() {
                     applyThemeColors(isDark)
                     lastRenderedDarkTheme = isDark
                 }
+                updateBubbleGlowState(
+                    isRunning = snap.isRunning,
+                    style = snap.bubbleGlowStyle,
+                    accentHex = snap.accentHex,
+                )
 
                 val cyanActive = "#7CE8FF".toColorInt()
                 val greenColor = "#28D17C".toColorInt()
@@ -336,16 +356,31 @@ class BtechOverlayService : Service() {
     @SuppressLint("ClickableViewAccessibility")
     private fun createBubbleView() {
         val density = resources.displayMetrics.density
-        val sizePx = (58 * density).toInt()
+        val coreSizePx = (58 * density).toInt()
+        val outerSizePx = (80 * density).toInt()
         val borderPx = (3 * density).toInt()
 
         val container = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+            clipToOutline = false
+        }
+
+        val glowView = View(this).apply {
+            visibility = View.GONE
+        }
+        container.addView(
+            glowView,
+            FrameLayout.LayoutParams(outerSizePx, outerSizePx, Gravity.CENTER),
+        )
+
+        val coreFrame = FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor("#102743".toColorInt())
                 setStroke(borderPx, Color.WHITE)
             }
-            elevation = 12 * density
+            elevation = 10 * density
             clipToOutline = true
         }
 
@@ -362,7 +397,11 @@ class BtechOverlayService : Service() {
         ).apply {
             setMargins(borderPx, borderPx, borderPx, borderPx)
         }
-        container.addView(avatar, innerParams)
+        coreFrame.addView(avatar, innerParams)
+        container.addView(
+            coreFrame,
+            FrameLayout.LayoutParams(coreSizePx, coreSizePx, Gravity.CENTER),
+        )
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -372,14 +411,14 @@ class BtechOverlayService : Service() {
         }
 
         val params = WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
+            outerSizePx,
+            outerSizePx,
             type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (resources.displayMetrics.widthPixels - sizePx - (18 * density).toInt())
+            x = (resources.displayMetrics.widthPixels - outerSizePx - (7 * density).toInt())
             y = (resources.displayMetrics.heightPixels * 0.62f).toInt()
         }
 
@@ -406,9 +445,11 @@ class BtechOverlayService : Service() {
                     if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
                         moved = true
                     }
-                    params.x = (startX + dx).coerceIn(0, resources.displayMetrics.widthPixels - sizePx)
-                    params.y = (startY + dy).coerceIn(0, resources.displayMetrics.heightPixels - sizePx)
-                    windowManager.updateViewLayout(container, params)
+                    params.x = (startX + dx).coerceIn(0, resources.displayMetrics.widthPixels - outerSizePx)
+                    params.y = (startY + dy).coerceIn(0, resources.displayMetrics.heightPixels - outerSizePx)
+                    if (container.isAttachedToWindow) {
+                        runCatching { windowManager.updateViewLayout(container, params) }
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -422,8 +463,117 @@ class BtechOverlayService : Service() {
         }
 
         bubbleView = container
+        bubbleGlowView = glowView
+        bubbleCoreFrame = coreFrame
         bubbleParams = params
         windowManager.addView(container, params)
+        val snap = OverlayStateBus.snapshot.value
+        updateBubbleGlowState(
+            isRunning = snap.isRunning,
+            style = snap.bubbleGlowStyle,
+            accentHex = snap.accentHex,
+        )
+    }
+
+    private fun updateBubbleGlowState(
+        isRunning: Boolean,
+        style: BubbleGlowStyle,
+        accentHex: String = activeAccentHex,
+    ) {
+        val changed = activeGlowRunning != isRunning || activeGlowStyle != style || activeAccentHex != accentHex
+        activeGlowRunning = isRunning
+        activeGlowStyle = style
+        activeAccentHex = accentHex
+
+        if (!isRunning) {
+            bubbleGlowAnimator?.cancel()
+            bubbleGlowAnimator = null
+            bubbleGlowView?.visibility = View.GONE
+            applyCoreBubbleIdleStroke(OverlayStateBus.snapshot.value.isDarkTheme)
+            return
+        }
+
+        bubbleGlowView?.visibility = View.VISIBLE
+        if (changed) {
+            renderBubbleGlowFrame(currentGlowPhase)
+        }
+        if (bubbleGlowAnimator == null) {
+            bubbleGlowAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 7200L
+                repeatCount = ValueAnimator.INFINITE
+                repeatMode = ValueAnimator.RESTART
+                interpolator = LinearInterpolator()
+                addUpdateListener { anim ->
+                    val frac = anim.animatedValue as Float
+                    currentGlowPhase = frac
+                    renderBubbleGlowFrame(frac)
+                }
+                start()
+            }
+        }
+    }
+
+    private fun renderBubbleGlowFrame(phase: Float) {
+        val glowView = bubbleGlowView ?: return
+        val core = bubbleCoreFrame ?: return
+        val density = resources.displayMetrics.density
+        val outerSizePx = (80 * density).toInt()
+        val borderPx = (3 * density).toInt()
+        val isDark = OverlayStateBus.snapshot.value.isDarkTheme
+
+        val cycleInts = BubbleGlowStyle.CYCLE_HEX_COLORS.map { it.toColorInt() }
+        val baseColor = when (activeGlowStyle) {
+            BubbleGlowStyle.AUTO -> {
+                val scaled = phase * cycleInts.size
+                val idx = scaled.toInt().coerceIn(0, cycleInts.lastIndex)
+                val nextIdx = (idx + 1) % cycleInts.size
+                val t = scaled - scaled.toInt()
+                ColorUtils.blendARGB(cycleInts[idx], cycleInts[nextIdx], t)
+            }
+            BubbleGlowStyle.PRIME -> runCatching { activeAccentHex.toColorInt() }.getOrDefault("#9138EE".toColorInt())
+            else -> activeGlowStyle.hex.toColorInt()
+        }
+
+        val pulse = 0.5f + 0.5f * sin(phase * 2.0 * PI * 6.0).toFloat()
+        val isDarkStyle = ColorUtils.calculateLuminance(baseColor) < 0.08
+        val haloColor = if (isDarkStyle) "#0F172A".toColorInt() else baseColor
+        val rimColor = if (isDarkStyle) {
+            "#64748B".toColorInt()
+        } else {
+            ColorUtils.blendARGB(baseColor, Color.WHITE, 0.25f)
+        }
+
+        glowView.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                ColorUtils.setAlphaComponent(haloColor, 235),
+                ColorUtils.setAlphaComponent(haloColor, (175 + 55 * pulse).toInt().coerceIn(0, 255)),
+                ColorUtils.setAlphaComponent(haloColor, (80 + 45 * pulse).toInt().coerceIn(0, 255)),
+                Color.TRANSPARENT,
+            ),
+        ).apply {
+            shape = GradientDrawable.OVAL
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            gradientRadius = (outerSizePx / 2f) * (0.94f + 0.06f * pulse)
+        }
+        val scale = 0.94f + 0.06f * pulse
+        glowView.scaleX = scale
+        glowView.scaleY = scale
+
+        core.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (isDark) "#102743".toColorInt() else "#FFFFFF".toColorInt())
+            setStroke(borderPx, rimColor)
+        }
+    }
+
+    private fun applyCoreBubbleIdleStroke(isDark: Boolean) {
+        val density = resources.displayMetrics.density
+        bubbleCoreFrame?.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (isDark) "#102743".toColorInt() else "#FFFFFF".toColorInt())
+            setStroke((3 * density).toInt(), if (isDark) Color.WHITE else "#D0D9E3".toColorInt())
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -824,10 +974,10 @@ class BtechOverlayService : Service() {
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
-        (bubbleView as? FrameLayout)?.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(if (isDark) "#102743".toColorInt() else "#FFFFFF".toColorInt())
-            setStroke(dp(3), if (isDark) Color.WHITE else "#D0D9E3".toColorInt())
+        if (!activeGlowRunning) {
+            applyCoreBubbleIdleStroke(isDark)
+        } else {
+            renderBubbleGlowFrame(currentGlowPhase)
         }
 
         panelView?.background = GradientDrawable().apply {
@@ -951,6 +1101,8 @@ class BtechOverlayService : Service() {
         panelView?.let { runCatching { windowManager.removeView(it) } }
         webViewFallbackHost = null
         bubbleView = null
+        bubbleGlowView = null
+        bubbleCoreFrame = null
         panelView = null
     }
 

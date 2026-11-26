@@ -43,12 +43,16 @@ val BtechTerminalBlueBorder = Color(0xFF347DFF)
 val BtechDefaultAccent = Color(0xFF9138EE)
 
 val AccentSwatches = listOf(
-    Color(0xFF9138EE),
-    Color(0xFF458DF2),
-    Color(0xFFE53952),
-    Color(0xFF16A878),
-    Color(0xFFF2A900),
-    Color(0xFFE34B9B),
-    Color(0xFF12A9B0),
-    Color(0xFF27364B),
+    Color(0xFF9138EE), // Purple
+    Color(0xFF2563EB), // Blue
+    Color(0xFF84CC16), // Lime
+    Color(0xFF1E293B), // Dark Style
+    Color(0xFFFF4500), // Orange Red
+    Color(0xFFFF1E6E), // Pink Red
+    Color(0xFF458DF2), // Sky Blue
+    Color(0xFFE53952), // Crimson
+    Color(0xFF16A878), // Emerald
+    Color(0xFFF2A900), // Amber
+    Color(0xFFE34B9B), // Rose
+    Color(0xFF12A9B0), // Teal
 )

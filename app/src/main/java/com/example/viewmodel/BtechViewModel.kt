@@ -7,6 +7,7 @@ import com.example.data.BtechPreferencesRepository
 import com.example.model.AllowedSymbolConfig
 import com.example.model.BrokerCatalog
 import com.example.model.BrokerSymbolResolver
+import com.example.model.BubbleGlowStyle
 import com.example.model.DiscoveredBrokerCatalog
 import com.example.model.ExecutionStepLog
 import com.example.model.NavStyle
@@ -56,6 +57,7 @@ data class AppUiState(
     val accentHex: String = "#9138EE",
     val customColors: List<String> = List(16) { "" },
     val navStyle: NavStyle = NavStyle.INDICATOR,
+    val bubbleGlowStyle: BubbleGlowStyle = BubbleGlowStyle.AUTO,
     val profileName: String = "BTECH Client",
     val showWebInspector: Boolean = false,
     val showOverlayPermissionPrompt: Boolean = false,
@@ -115,6 +117,7 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                         customColors = saved.customColors,
                         isDarkTheme = saved.isDarkTheme,
                         navStyle = saved.navStyle,
+                        bubbleGlowStyle = saved.bubbleGlowStyle,
                         profileName = saved.profileName,
                         loginInput = state.loginInput.ifEmpty {
                             saved.savedAccountsByBroker[state.selectedBroker]?.login ?: ""
@@ -199,6 +202,7 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
                 accentHex = state.accentHex,
                 isConnected = account?.authenticated == true,
                 isDarkTheme = state.isDarkTheme,
+                bubbleGlowStyle = state.bubbleGlowStyle,
             )
         }
     }
@@ -541,7 +545,8 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch {
             repo.saveAccount(account)
-            OverlayStateBus.appendLog("Saved active WebView session for $serverName ($url)", isSuccess = true)
+            val safeUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(url)
+            OverlayStateBus.appendLog("Saved active WebView session for $serverName ($safeUrl)", isSuccess = true)
             _uiState.update {
                 it.copy(
                     isAuthBusy = false,
@@ -867,6 +872,12 @@ class BtechViewModel(application: Application) : AndroidViewModel(application) {
     fun setNavStyle(style: NavStyle) {
         viewModelScope.launch { repo.setNavStyle(style) }
         showToast("Navigation style updated")
+    }
+
+    fun setBubbleGlowStyle(style: BubbleGlowStyle) {
+        viewModelScope.launch { repo.setBubbleGlowStyle(style) }
+        OverlayStateBus.updateSnapshot { it.copy(bubbleGlowStyle = style) }
+        showToast("Bubble glow: ${style.label}")
     }
 
     fun setProfileName(name: String) {

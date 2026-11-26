@@ -16,8 +16,9 @@ enum class ExecutionStepId(val label: String, val progress: Float) {
     OPENING_TERMINAL("Opening terminal", 0.28f),
     AUTHENTICATING_ACCOUNT("Authenticating account", 0.44f),
     SELECTING_SYMBOL("Searching symbol", 0.62f),
-    PREPARING_TRADE("Preparing trade", 0.78f),
-    EXECUTING_TRADE("Executing trade", 0.92f),
+    PREPARING_TRADE("Preparing trade", 0.74f),
+    EXECUTING_TRADE("Executing trade", 0.88f),
+    TRADE_COMPLETED("Trade completed", 1.0f),
 }
 
 enum class ExecutionStepStatus {
@@ -63,6 +64,7 @@ data class OverlaySnapshot(
     val executionFailed: Boolean = false,
     val executionCompleted: Boolean = false,
     val isDarkTheme: Boolean = false,
+    val bubbleGlowStyle: com.example.model.BubbleGlowStyle = com.example.model.BubbleGlowStyle.AUTO,
     val lastTradeResult: BrokerTradeResult? = null,
 )
 
@@ -215,6 +217,7 @@ object OverlayStateBus {
                 )
             }
 
+            val monotonicProgress = maxOf(cur.executionProgress, progress.coerceIn(0f, 1f))
             cur.copy(
                 isExecuting = true,
                 statusPill = "EXECUTING",
@@ -222,7 +225,7 @@ object OverlayStateBus {
                 hasExecutionTracker = true,
                 executionFailed = false,
                 executionCompleted = false,
-                executionProgress = progress.coerceIn(0f, 1f),
+                executionProgress = monotonicProgress,
                 executionHeaderStatus = headerStatus?.takeIf { it.isNotBlank() } ?: label,
                 executionSteps = updated,
             )
@@ -247,9 +250,12 @@ object OverlayStateBus {
                     item
                 }
             }
+            val monotonicProgress = progress
+                ?.let { maxOf(cur.executionProgress, it.coerceIn(0f, 1f)) }
+                ?: cur.executionProgress
             cur.copy(
                 statusDetail = detail?.takeIf { it.isNotBlank() } ?: cur.statusDetail,
-                executionProgress = progress?.coerceIn(0f, 1f) ?: cur.executionProgress,
+                executionProgress = monotonicProgress,
                 executionHeaderStatus = headerStatus?.takeIf { it.isNotBlank() } ?: cur.executionHeaderStatus,
                 executionSteps = updated,
             )
@@ -276,14 +282,29 @@ object OverlayStateBus {
         )
     }
 
-    fun completeExecutionSuccess(detail: String) {
+    fun completeExecutionSuccess(detail: String, totalTrades: Int = 1) {
         _snapshot.value = _snapshot.value.let { cur ->
-            val completedSteps = cur.executionSteps.map { item ->
-                if (item.status == ExecutionStepStatus.ACTIVE || item.status == ExecutionStepStatus.PENDING) {
-                    item.copy(status = ExecutionStepStatus.COMPLETED)
-                } else {
-                    item
+            val safeTotal = totalTrades.coerceAtLeast(1)
+            val completedLabel = if (safeTotal > 1) "Trade $safeTotal/$safeTotal completed" else "Trade completed"
+            val updatedSteps = cur.executionSteps.map { item ->
+                when {
+                    item.key == "TRADE" -> item.copy(status = ExecutionStepStatus.COMPLETED, label = "Executed")
+                    item.status == ExecutionStepStatus.ACTIVE || item.status == ExecutionStepStatus.PENDING ->
+                        item.copy(status = ExecutionStepStatus.COMPLETED)
+                    else -> item
                 }
+            }.toMutableList()
+            val summaryIdx = updatedSteps.indexOfFirst { it.key == ExecutionStepId.TRADE_COMPLETED.name }
+            val summaryItem = ExecutionStepItem(
+                id = ExecutionStepId.TRADE_COMPLETED,
+                status = ExecutionStepStatus.COMPLETED,
+                label = completedLabel,
+                key = ExecutionStepId.TRADE_COMPLETED.name,
+            )
+            if (summaryIdx >= 0) {
+                updatedSteps[summaryIdx] = summaryItem
+            } else {
+                updatedSteps.add(summaryItem)
             }
             cur.copy(
                 isExecuting = false,
@@ -294,7 +315,7 @@ object OverlayStateBus {
                 executionCompleted = true,
                 executionProgress = 1f,
                 executionHeaderStatus = "Completed",
-                executionSteps = completedSteps,
+                executionSteps = updatedSteps,
             )
         }
     }

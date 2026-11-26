@@ -563,10 +563,11 @@ fun BrokerLoginScreen(
                             fontWeight = FontWeight.Bold,
                             color = extra.muted,
                         )
+                        val displayEffectiveUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(effectiveUrl)
                         Text(
-                            text = effectiveUrl.ifBlank { "Not set — enter your broker's WebTrader URL above" },
+                            text = displayEffectiveUrl.ifBlank { "Not set — enter your broker's WebTrader URL above" },
                             fontSize = 11.sp,
-                            color = if (effectiveUrl.isBlank()) extra.amber else MaterialTheme.colorScheme.primary,
+                            color = if (displayEffectiveUrl.isBlank()) extra.amber else MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -596,7 +597,7 @@ fun BrokerLoginScreen(
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
             textContentColor = MaterialTheme.colorScheme.onSurface,
-            title = { Text("Connecting in background...") },
+            title = { Text("Authenticating Account") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -611,8 +612,12 @@ fun BrokerLoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(modifier = Modifier.height(10.dp))
+                    val displayUrl = resolvedTerminalUrl
+                        ?.let { BrokerCatalog.sanitizeTerminalUrlForDisplay(it) }
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "Web Terminal"
                     Text(
-                        text = "Loading ($pct%) ${resolvedTerminalUrl ?: "Web Terminal"}...",
+                        text = "Loading ($pct%) $displayUrl...",
                         textAlign = TextAlign.Center,
                         color = extra.muted,
                         fontSize = 12.sp,
@@ -672,9 +677,10 @@ fun BrokerLoginScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(msg, color = extra.muted, fontSize = 12.sp)
-                    if (!state.authDialogSuccess && webStatus.currentUrl.isNotBlank() && !msg.contains(webStatus.currentUrl)) {
+                    val displayCurUrl = BrokerCatalog.sanitizeTerminalUrlForDisplay(webStatus.currentUrl)
+                    if (!state.authDialogSuccess && displayCurUrl.isNotBlank() && !msg.contains(displayCurUrl)) {
                         Text(
-                            text = "Current URL: ${webStatus.currentUrl}",
+                            text = "Current URL: $displayCurUrl",
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 11.sp,
                         )

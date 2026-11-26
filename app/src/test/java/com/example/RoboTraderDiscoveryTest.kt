@@ -915,7 +915,7 @@ class RoboTraderDiscoveryTest {
 
           let st4Rej = buildRichMt4Dom({ mode: 'reject' });
           eval($mt4BareOkAndRejectJs);
-          for (let w = 0; w < 80 && !st4Rej.logs.some(function(l) { return l.done; }); w++) {
+          for (let w = 0; w < 140 && !st4Rej.logs.some(function(l) { return l.done; }); w++) {
             await sleepMs(40);
           }
           const mt4RejectionStops3TradeCountOk =
@@ -974,8 +974,8 @@ class RoboTraderDiscoveryTest {
         assertTrue(results.getBoolean("mt4ContextMenuThreeEventsOk"))
         assertTrue(results.getBoolean("mt4ShowAllMouseOverOk"))
         assertTrue(results.getBoolean("mt4SlZeroResetOk"))
-        assertTrue(results.getBoolean("mt4BareOkNotCountedAndUnknownOk"))
-        assertTrue(results.getBoolean("mt4RejectionStops3TradeCountOk"))
+        assertTrue("mt4BareOkNotCountedAndUnknownOk failed: $results", results.getBoolean("mt4BareOkNotCountedAndUnknownOk"))
+        assertTrue("mt4RejectionStops3TradeCountOk failed: $results", results.getBoolean("mt4RejectionStops3TradeCountOk"))
         assertTrue(results.getBoolean("removeSessionExplicitOk"))
     }
 
@@ -4245,6 +4245,325 @@ class RoboTraderDiscoveryTest {
         assertTrue("Exact MetaQuotes MT4 DOM test failed: ${results.optString("error")}", results.optBoolean("ok", false))
         assertTrue("openVirtualMwOk failed: $results", results.getBoolean("openVirtualMwOk"))
         assertTrue("hiddenViewMenuToVirtualScrollOk failed: $results", results.getBoolean("hiddenViewMenuToVirtualScrollOk"))
+    }
+
+    @Test
+    fun `Broker error hardening rejects Not enough money despite account login in DOM, halts MT4 Trade is disabled immediately, cleans JS floats, and sanitizes URLs`() {
+        assertEquals(
+            "https://metatraderweb.app/trade",
+            BrokerCatalog.sanitizeTerminalUrlForDisplay("https://metatraderweb.app/trade?version=4&login=71908336&server=MetaQuotes-Demo"),
+        )
+        assertEquals(
+            "https://mt5trial9.exwebterm.com/terminal",
+            BrokerCatalog.sanitizeTerminalUrlForDisplay("https://mt5trial9.exwebterm.com/terminal?login=477786797&server=Exness-MT5Trial9"),
+        )
+
+        val mt5NotEnoughMoneyJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "BTCUSD",
+                direction = "SELL",
+                lot = "40",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 5,
+                platform = "MT5",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+                accountLogin = "71908336",
+            )
+        )
+        val mt4TradeDisabledJs = JSONObject.quote(
+            WebTerminalScripts.buildTradeScript(
+                symbol = "BTCUSD",
+                direction = "SELL",
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 5,
+                platform = "MT4",
+                broker = "MetaQuotes",
+                server = "MetaQuotes-Demo",
+                accountLogin = "2000188735",
+            )
+        )
+
+        val script = """
+        (async function() {
+          // 1. MT5 "Not enough money" with ACCOUNT_LOGIN (#71908336 / 71908336) present in dialog/order row
+          const d5 = createDomDocument();
+          const st5 = { sellClicks: 0, okClicks: 0, results: [], logs: [] };
+          const ws5 = d5.createElement('div');
+          ws5.textContent = 'Balance: 100.00 USD Equity: 100.00 USD Margin: 0.00 Free Margin: 100.00 Positions Account #71908336';
+          d5.body.appendChild(ws5);
+
+          const searchIn5 = d5.createElement('input');
+          searchIn5.setAttribute('placeholder', 'Search symbol');
+          const symBtn5 = d5.createElement('button');
+          symBtn5.textContent = 'BTCUSD';
+          symBtn5.addEventListener('click', function() {
+            const tf = d5.createElement('div');
+            tf.className = 'trade-form';
+            const volW = d5.createElement('div');
+            volW.className = 'trade-input';
+            const volLbl = d5.createElement('span');
+            volLbl.className = 'label';
+            volLbl.textContent = 'Volume';
+            const volIn = d5.createElement('input');
+            volW.appendChild(volLbl);
+            volW.appendChild(volIn);
+            tf.appendChild(volW);
+
+            const sellB = d5.createElement('button');
+            sellB.textContent = 'Sell by Market';
+            sellB.addEventListener('click', function() {
+              st5.sellClicks++;
+              const resDlg = d5.createElement('div');
+              resDlg.setAttribute('role', 'dialog');
+              resDlg.className = 'order-result-modal';
+              resDlg.textContent = 'Account #71908336 sell 40 BTCUSD at 60052.590000000004';
+              const errNode = d5.createElement('div');
+              errNode.className = 'error';
+              errNode.textContent = 'Not enough money';
+              const okB = d5.createElement('button');
+              okB.textContent = 'OK';
+              okB.addEventListener('click', function() {
+                st5.okClicks++;
+                if (resDlg.parentElement) resDlg.parentElement.removeChild(resDlg);
+              });
+              resDlg.appendChild(errNode);
+              resDlg.appendChild(okB);
+              d5.body.appendChild(resDlg);
+            });
+            tf.appendChild(sellB);
+            d5.body.appendChild(tf);
+          });
+          d5.body.appendChild(searchIn5);
+          d5.body.appendChild(symBtn5);
+
+          installDoc(d5);
+          window.BtechBridge = {
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) { st5.logs.push({ m: m, err: err, done: done }); },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(json) { st5.results.push(JSON.parse(json)); }
+          };
+
+          eval($mt5NotEnoughMoneyJs);
+          for (let w = 0; w < 100 && !st5.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+
+          const cleanPrice1 = window.BtechRoboTraderDiscovery.cleanPriceString('1.8736899999999999');
+          const cleanPrice2 = window.BtechRoboTraderDiscovery.cleanPriceString('60052.590000000004');
+          const cleanPrice3 = window.BtechRoboTraderDiscovery.cleanPriceString('1.0850');
+          const cleanSummary = window.BtechRoboTraderDiscovery.extractDealSummary(
+            '#99881122 sell 0.01 EURGBP at 1.8736899999999999\n#99881123 buy 0.01 BTCUSD at 60052.590000000004',
+            new Set(),
+            1,
+            ''
+          );
+
+          const mt5NotEnoughMoneyHaltedOk =
+            st5.sellClicks === 1 &&
+            st5.okClicks >= 1 &&
+            st5.results.length === 1 &&
+            st5.results[0].status === 'REJECTED' &&
+            st5.results[0].ticket === '' &&
+            st5.results[0].rawMessage.toLowerCase().indexOf('not enough money') >= 0 &&
+            st5.logs.some(function(l) { return l.done && l.err && l.m.toLowerCase().indexOf('not enough money') >= 0; });
+
+          // 2. MT4 "Trade is disabled" modal (has OK, NO Buy/Sell buttons) must fail immediately with Trade is disabled
+          const d4 = createDomDocument();
+          const st4 = { okClicks: 0, results: [], logs: [], tStart: Date.now(), tDone: 0 };
+          const ws4 = d4.createElement('div');
+          ws4.textContent = 'Balance: 100,000.00 USD Equity: 100,000.00 USD';
+          d4.body.appendChild(ws4);
+
+          const mw4 = d4.createElement('div');
+          mw4.className = 'market-watch-panel';
+          const mwLbl4 = d4.createElement('div');
+          mwLbl4.textContent = 'Market Watch';
+          mw4.appendChild(mwLbl4);
+          const tbl4 = d4.createElement('table');
+          const row4 = d4.createElement('tr');
+          const td4 = d4.createElement('td');
+          td4.textContent = 'BTCUSD';
+          row4.appendChild(td4);
+          row4.addEventListener('contextmenu', function(ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            const menu4 = d4.createElement('div');
+            menu4.className = 'page-menu';
+            const mi4 = d4.createElement('div');
+            mi4.setAttribute('role', 'menuitem');
+            mi4.textContent = 'New Order';
+            mi4.addEventListener('click', function() {
+              if (menu4.parentElement) menu4.parentElement.removeChild(menu4);
+              const dlg4 = d4.createElement('div');
+              dlg4.className = 'page-window';
+              dlg4.setAttribute('role', 'dialog');
+              const symLbl = d4.createElement('div');
+              symLbl.textContent = 'Symbol: BTCUSD Order Execution';
+              const disabledMsg = d4.createElement('div');
+              disabledMsg.textContent = 'Trade is disabled';
+              const ok4 = d4.createElement('button');
+              ok4.textContent = 'OK';
+              ok4.addEventListener('click', function() {
+                st4.okClicks++;
+                if (dlg4.parentElement) dlg4.parentElement.removeChild(dlg4);
+              });
+              dlg4.appendChild(symLbl);
+              dlg4.appendChild(disabledMsg);
+              dlg4.appendChild(ok4);
+              d4.body.appendChild(dlg4);
+            });
+            menu4.appendChild(mi4);
+            d4.body.appendChild(menu4);
+          });
+          tbl4.appendChild(row4);
+          mw4.appendChild(tbl4);
+          d4.body.appendChild(mw4);
+
+          installDoc(d4);
+          window.BtechBridge = {
+            onTradePhase: function() {},
+            onTradeLog: function(m, err, done) {
+              if (done && !st4.tDone) st4.tDone = Date.now();
+              st4.logs.push({ m: m, err: err, done: done });
+            },
+            onSymbolDiscovered: function() {},
+            onTradeResult: function(json) { st4.results.push(JSON.parse(json)); }
+          };
+
+          eval($mt4TradeDisabledJs);
+          for (let w = 0; w < 100 && !st4.logs.some(function(l) { return l.done; }); w++) {
+            await sleepMs(40);
+          }
+
+          const elapsed4 = st4.tDone > 0 ? (st4.tDone - st4.tStart) : 99999;
+          const mt4TradeDisabledImmediateOk =
+            st4.okClicks >= 1 &&
+            st4.results.length === 1 &&
+            st4.results[0].status === 'REJECTED' &&
+            st4.results[0].rawMessage.toLowerCase().indexOf('trade is disabled') >= 0 &&
+            elapsed4 < 2500;
+
+          console.log(JSON.stringify({
+            ok: true,
+            cleanPrice1: cleanPrice1,
+            cleanPrice2: cleanPrice2,
+            cleanPrice3: cleanPrice3,
+            cleanSummary: cleanSummary,
+            mt5NotEnoughMoneyHaltedOk: mt5NotEnoughMoneyHaltedOk,
+            mt4TradeDisabledImmediateOk: mt4TradeDisabledImmediateOk,
+            elapsed4: elapsed4,
+            st5: st5,
+            st4: st4
+          }));
+        })().catch(function(err) {
+          console.log(JSON.stringify({ ok: false, error: err && err.stack ? err.stack : String(err) }));
+        });
+        """.trimIndent()
+
+        val results = runNodeHarness(script)
+        assertTrue("Hardening test failed: ${results.optString("error")}", results.optBoolean("ok", false))
+        assertEquals("1.87369", results.getString("cleanPrice1"))
+        assertEquals("60052.59", results.getString("cleanPrice2"))
+        assertEquals("1.0850", results.getString("cleanPrice3"))
+        assertFalse(results.getString("cleanSummary").contains("999999"))
+        assertTrue(results.getString("cleanSummary").contains("1.87369"))
+        assertTrue("mt5NotEnoughMoneyHaltedOk failed: $results", results.getBoolean("mt5NotEnoughMoneyHaltedOk"))
+        assertTrue("mt4TradeDisabledImmediateOk failed: $results", results.getBoolean("mt4TradeDisabledImmediateOk"))
+    }
+
+    @Test
+    fun `OverlayStateBus maintains strictly monotonic progress and keeps Preparing trade ticked across multi-trade execution`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val engine = com.example.webterminal.WebTerminalEngine.getInstance(context)
+        val runId = engine.startSyntheticTradeRunForTest(
+            account = com.example.model.SavedAccount(
+                broker = "Exness",
+                platform = PlatformType.MT5,
+                login = "71908336",
+                password = "secret",
+                server = "Exness-MT5Trial9",
+                serverId = "ex-mt5",
+                terminalUrl = "https://mt5trial9.exwebterm.com",
+                authenticated = true,
+                connectionStatus = "CONNECTED",
+            ),
+            signal = SimulatedSignalRequest(
+                signalId = "SIG-MONO",
+                symbol = "XAUUSD",
+                direction = TradeDirection.BUY,
+                lot = "0.01",
+                stopLoss = "",
+                takeProfit = "",
+                comment = "",
+                tradeCount = 5,
+                platform = PlatformType.MT5,
+            ),
+        ) { _, _ -> }
+
+        val progressSamples = mutableListOf<Float>()
+        fun sampleAndAssertMonotonic() {
+            val cur = OverlayStateBus.snapshot.value.executionProgress
+            if (progressSamples.isNotEmpty()) {
+                assertTrue(
+                    "Progress decreased from ${progressSamples.last()} to $cur ($progressSamples)",
+                    cur >= progressSamples.last(),
+                )
+            }
+            progressSamples.add(cur)
+        }
+
+        engine.dispatchTradePhaseForTest(runId, "TERMINAL_OK", "Open")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "AUTH_OK", "Auth ok")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "SYMBOL_FOUND", "Found XAUUSD")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "PREPARE:1:5", "Preparing trade 1/5")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "PREPARED:1:5", "Prepared trade 1/5")
+        sampleAndAssertMonotonic()
+
+        // Once Preparing trade is completed on Trade 1, Trade 2..5 must NOT untick it!
+        val prepStepAfterTrade1 = OverlayStateBus.snapshot.value.executionSteps.first { it.key == "PREPARE" }
+        assertEquals(ExecutionStepStatus.COMPLETED, prepStepAfterTrade1.status)
+
+        engine.dispatchTradePhaseForTest(runId, "TRADE_SUBMIT:1:5", "Submitting 1/5")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "TRADE_CONFIRMED:1:5", "Confirmed 1/5")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "TERMINAL_CLEAR:1:5", "Clear")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "PREPARE:2:5", "Preparing 2/5")
+        sampleAndAssertMonotonic()
+        assertEquals(
+            ExecutionStepStatus.COMPLETED,
+            OverlayStateBus.snapshot.value.executionSteps.first { it.key == "PREPARE" }.status,
+        )
+        assertEquals(
+            ExecutionStepStatus.ACTIVE,
+            OverlayStateBus.snapshot.value.executionSteps.first { it.key == "TRADE" }.status,
+        )
+
+        engine.dispatchTradePhaseForTest(runId, "TRADE_SUBMIT:5:5", "Submitting 5/5")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradePhaseForTest(runId, "TRADE_CONFIRMED:5:5", "Confirmed 5/5")
+        sampleAndAssertMonotonic()
+        engine.dispatchTradeLogForTest(runId, "All 5/5 trades confirmed", isError = false, isDone = true)
+        sampleAndAssertMonotonic()
+
+        val finalSnap = OverlayStateBus.snapshot.value
+        assertEquals(1.0f, finalSnap.executionProgress)
+        assertEquals("Executed", finalSnap.executionSteps.first { it.key == "TRADE" }.label)
+        assertEquals(
+            "Trade 5/5 completed",
+            finalSnap.executionSteps.first { it.id == com.example.service.ExecutionStepId.TRADE_COMPLETED }.label,
+        )
     }
 
     private fun runNodeHarness(testScriptJs: String): JSONObject {

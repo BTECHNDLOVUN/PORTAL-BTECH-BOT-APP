@@ -1,6 +1,13 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -49,11 +58,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.core.graphics.toColorInt
 import com.example.R
+import com.example.model.BubbleGlowStyle
 import com.example.service.OverlaySnapshot
 import com.example.ui.theme.BtechGreenLight
 import com.example.ui.theme.BtechLightBg
@@ -63,7 +75,9 @@ import com.example.ui.theme.BtechLightSurface
 import com.example.ui.theme.BtechLightSurface2
 import com.example.ui.theme.BtechLightText
 import com.example.ui.theme.LocalBtechColors
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * In-app draggable floating bubble and expandable monitor card faithfully matching
@@ -115,9 +129,9 @@ fun BtechFloatingOverlay(
         val maxW = with(density) { maxWidth.toPx() }
         val maxH = with(density) { maxHeight.toPx() }
 
-        val bubbleSizePx = with(density) { 58.dp.toPx() }
-        var bubbleX by remember(maxW) { mutableFloatStateOf((maxW - bubbleSizePx - with(density) { 18.dp.toPx() }).coerceAtLeast(16f)) }
-        var bubbleY by remember(maxH) { mutableFloatStateOf((maxH * 0.62f).coerceIn(80f, (maxH - bubbleSizePx - 120f).coerceAtLeast(80f))) }
+        val bubbleOuterSizePx = with(density) { 78.dp.toPx() }
+        var bubbleX by remember(maxW) { mutableFloatStateOf((maxW - bubbleOuterSizePx - with(density) { 8.dp.toPx() }).coerceAtLeast(8f)) }
+        var bubbleY by remember(maxH) { mutableFloatStateOf((maxH * 0.62f).coerceIn(80f, (maxH - bubbleOuterSizePx - 120f).coerceAtLeast(80f))) }
 
         val panelWidthDp = 340.dp.coerceAtMost(maxWidth - 24.dp)
         val panelWidthPx = with(density) { panelWidthDp.toPx() }
@@ -125,32 +139,29 @@ fun BtechFloatingOverlay(
         var panelY by remember(maxH) { mutableFloatStateOf((maxH * 0.14f).coerceAtLeast(48f)) }
 
         if (!expanded) {
-            Surface(
+            Box(
                 modifier = Modifier
                     .offset { IntOffset(bubbleX.roundToInt(), bubbleY.roundToInt()) }
-                    .size(58.dp)
+                    .size(78.dp)
                     .pointerInput(maxW, maxH) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            bubbleX = (bubbleX + dragAmount.x).coerceIn(8f, (maxW - bubbleSizePx - 8f).coerceAtLeast(8f))
-                            bubbleY = (bubbleY + dragAmount.y).coerceIn(40f, (maxH - bubbleSizePx - 96f).coerceAtLeast(40f))
+                            bubbleX = (bubbleX + dragAmount.x).coerceIn(4f, (maxW - bubbleOuterSizePx - 4f).coerceAtLeast(4f))
+                            bubbleY = (bubbleY + dragAmount.y).coerceIn(32f, (maxH - bubbleOuterSizePx - 88f).coerceAtLeast(32f))
                         }
                     }
                     .clickable { expanded = true }
                     .testTag("in_app_floating_bubble"),
-                shape = CircleShape,
-                color = bubbleBg,
-                border = BorderStroke(3.dp, bubbleBorder),
-                shadowElevation = 12.dp,
+                contentAlignment = Alignment.Center,
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.astra_hero),
-                    contentDescription = "Open BTECH floating monitor",
-                    contentScale = ContentScale.Crop,
-                    alignment = BiasAlignment(0f, -0.25f),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
+                GlowingBubbleAvatar(
+                    glowEnabled = snapshot.isRunning,
+                    glowStyle = snapshot.bubbleGlowStyle,
+                    primeColor = Color(runCatching { snapshot.accentHex.toColorInt() }.getOrDefault(0xFF9138EE.toInt())),
+                    bubbleBg = bubbleBg,
+                    idleBorderColor = bubbleBorder,
+                    coreSize = 56.dp,
+                    outerSize = 78.dp,
                 )
             }
         } else {
@@ -475,6 +486,93 @@ fun BtechFloatingOverlay(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun GlowingBubbleAvatar(
+    glowEnabled: Boolean,
+    glowStyle: BubbleGlowStyle,
+    primeColor: Color = Color(0xFF9138EE),
+    bubbleBg: Color,
+    idleBorderColor: Color,
+    coreSize: Dp = 56.dp,
+    outerSize: Dp = 78.dp,
+    contentDescription: String = "Open BTECH floating monitor",
+    modifier: Modifier = Modifier,
+) {
+    val cycleColors = remember {
+        BubbleGlowStyle.CYCLE_HEX_COLORS.map { Color(it.toColorInt()) }
+    }
+    val transition = rememberInfiniteTransition(label = "bubble_glow_transition")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "bubble_glow_phase",
+    )
+
+    val pulse = 0.5f + 0.5f * sin(phase * 2.0 * PI * 6.0).toFloat()
+    val glowColor = when (glowStyle) {
+        BubbleGlowStyle.AUTO -> {
+            val scaled = phase * cycleColors.size
+            val idx = scaled.toInt().coerceIn(0, cycleColors.lastIndex)
+            val nextIdx = (idx + 1) % cycleColors.size
+            val fraction = scaled - scaled.toInt()
+            lerp(cycleColors[idx], cycleColors[nextIdx], fraction)
+        }
+        BubbleGlowStyle.PRIME -> primeColor
+        else -> Color(glowStyle.hex.toColorInt())
+    }
+
+    val isDarkStyle = glowColor.luminance() < 0.08f
+    val haloColor = if (isDarkStyle) Color(0xFF0F172A) else glowColor
+    val rimColor = when {
+        !glowEnabled -> idleBorderColor
+        isDarkStyle -> Color(0xFF64748B)
+        else -> lerp(glowColor, Color.White, 0.25f)
+    }
+
+    Box(
+        modifier = modifier.size(outerSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (glowEnabled) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val radius = (size.minDimension / 2f) * (0.93f + 0.07f * pulse)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.0f to haloColor.copy(alpha = 0.92f),
+                        0.58f to haloColor.copy(alpha = 0.72f + 0.18f * pulse),
+                        0.82f to haloColor.copy(alpha = 0.34f + 0.16f * pulse),
+                        1.0f to Color.Transparent,
+                        center = center,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                )
+            }
+        }
+        Surface(
+            modifier = Modifier.size(coreSize),
+            shape = CircleShape,
+            color = bubbleBg,
+            border = BorderStroke(if (glowEnabled) 2.5.dp else 3.dp, rimColor),
+            shadowElevation = if (glowEnabled) 10.dp else 12.dp,
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.astra_hero),
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                alignment = BiasAlignment(0f, -0.25f),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+            )
         }
     }
 }
